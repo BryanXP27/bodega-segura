@@ -1,11 +1,9 @@
 import { create } from 'zustand';
 import { AuthState, FileMetadata } from '@/types';
-import localAuthAdapter from '@/lib/auth/local-adapter';
-import { db } from '@/lib/database/local-adapter';
+import { authAdapter, storageAdapter, databaseAdapter } from '@/lib/config';
 import { generateRsaKeyPair, exportPublicKeyJwk, encryptPrivateKeyWithPassword, importPublicKeyJwk, decryptAesKeyWithRsa, decryptPrivateKeyWithPassword, encryptAesKeyWithRsa } from '@/lib/crypto/rsa';
 import { generateAesKey, exportAesKey, encryptFileWithAes, decryptFileWithAes, importAesKey } from '@/lib/crypto/aes';
 import { deriveHmacKey, calculateHmac, verifyHmac } from '@/lib/crypto/hmac';
-import { localStorageAdapter } from '@/lib/storage/local-adapter';
 
 interface AppState extends AuthState {
   files: FileMetadata[];
@@ -60,12 +58,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (password !== confirmPassword) throw new Error('Las contraseñas no coinciden');
       if (password.length < 8) throw new Error('La contraseña debe tener al menos 8 caracteres');
       if (!email.includes('@')) throw new Error('Formato de correo inválido');
-      const { userId, sessionId } = await localAuthAdapter.register(email, password);
+      const { userId, sessionId } = await authAdapter.register(email, password);
       const keyPair = await generateRsaKeyPair();
       const publicKeyJwk = await exportPublicKeyJwk(keyPair.publicKey);
-      await db.updateUserPublicKey(userId, publicKeyJwk);
+      await databaseAdapter.updateUserPublicKey(userId, publicKeyJwk);
       const { encryptedData, iv, salt } = await encryptPrivateKeyWithPassword(keyPair.privateKey, password);
-      await db.saveEncryptedPrivateKey(userId, { ciphertext: encryptedData, iv, salt, iterations: 310000, algorithm: 'AES-GCM', keyLength: 256, userId });
+      await databaseAdapter.saveEncryptedPrivateKey(userId, { ciphertext: encryptedData, iv, salt, iterations: 310000, algorithm: 'AES-GCM', keyLength: 256, userId });
       set({ user: { id: userId, email, publicKey: null, createdAt: new Date().toISOString() }, sessionId, isAuthenticated: true, loading: false, message: 'Registro completado exitosamente' });
     } catch (err: any) {
       set({ loading: false, error: err.message });
@@ -76,8 +74,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   login: async (email, password) => {
     set({ loading: true, error: null });
     try {
-      const { userId, sessionId } = await localAuthAdapter.login(email, password);
-      const user = await db.getUserById(userId);
+      const { userId, sessionId } = await authAdapter.login(email, password);
+      const user = await databaseAdapter.getUserById(userId);
       set({ user: user ? { ...user, publicKey: null } : null, sessionId, isAuthenticated: true, loading: false });
       return { userId, sessionId };
     } catch (err: any) {
@@ -88,7 +86,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   logout: async () => {
     const { sessionId } = get();
-    if (sessionId) await localAuthAdapter.logout(sessionId);
+    if (sessionId) await authAdapter.logout(sessionId);
     set({ user: null, sessionId: null, isAuthenticated: false, files: [], activeFileId: null });
   },
 
@@ -103,16 +101,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       const { encryptedData, iv } = await encryptFileWithAes(fileData, aesKey);
       const hmacKey = await deriveHmacKey(aesKeyRaw);
       const hmac = await calculateHmac(encryptedData, hmacKey);
-      const publicKeyJwk = user.publicKeyJwk || (await db.getUserById(user.id))?.publicKeyJwk;
+      const publicKeyJwk = user.publicKeyJwk || (await databaseAdapter.getUserById(user.id))?.publicKeyJwk;
       if (!publicKeyJwk) throw new Error('Clave pública no encontrada');
       const publicKey = await importPublicKeyJwk(publicKeyJwk);
       const encryptedAesKey = await encryptAesKeyWithRsa(aesKeyRaw, publicKey);
       const storageName = `${user.id}/${file.name}_${Date.now()}`;
-      await localStorageAdapter.storeFile(storageName, encryptedData);
+      await storageAdapter.storeFile(storageName, encryptedData);
       const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const metadata = { id: fileId, userId: user.id, originalName: file.name, storageName, encryptedAesKey, iv, hmac, originalSize: file.size, createdAt: new Date().toISOString(), version: '1.0' };
-      await localStorageAdapter.storeMetadata(metadata);
-      const files = await localStorageAdapter.getUserFiles(user.id);
+      await storageAdapter.storeMetadata(metadata);
+      const files = await storageAdapter.getUserFiles(user.id);
       set({ files, loading: false, message: 'Archivo cifrado y almacenado exitosamente' });
     } catch (err: any) {
       set({ loading: false, error: err.message });
@@ -125,11 +123,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!user) throw new Error('Debe iniciar sesión');
     set({ downloadLoading: true, error: null });
     try {
-      const metadata = await localStorageAdapter.getMetadata(fileId) as any;
+      const metadata = await storageAdapter.getMetadata(fileId) as any;
       if (!metadata || metadata.userId !== user.id) throw new Error('Archivo no autorizado');
-      const encryptedData = await localStorageAdapter.getFile(metadata.storageName);
+      const encryptedData = await storageAdapter.getFile(metadata.storageName);
       if (!encryptedData) throw new Error('Archivo cifrado no encontrado');
-      const encPrivateKey = await db.getEncryptedPrivateKey(user.id);
+      const encPrivateKey = await databaseAdapter.getEncryptedPrivateKey(user.id);
       if (!encPrivateKey) throw new Error('Clave privada cifrada no encontrada');
       const privateKey = await decryptPrivateKeyWithPassword(encPrivateKey.ciphertext, encPrivateKey.iv, encPrivateKey.salt, password);
       const aesKeyRaw = await decryptAesKeyWithRsa(metadata.encryptedAesKey, privateKey);
@@ -156,7 +154,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!sessionId || !user) return;
     set({ loading: true });
     try {
-      const files = await localStorageAdapter.getUserFiles(user.id);
+      const files = await storageAdapter.getUserFiles(user.id);
       set({ files, loading: false });
     } catch (err: any) {
       set({ loading: false, error: err.message });

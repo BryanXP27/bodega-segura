@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from '@/components/ui';
 import Link from 'next/link';
+import { isSupabaseConfigured } from '@/lib/config';
 
 export default function HomePage() {
   return (
@@ -71,7 +72,7 @@ export default function HomePage() {
           <div className="flex flex-wrap justify-center gap-8 mt-12 text-sm text-gray-500">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
-              100% Local
+              {isSupabaseConfigured ? 'Supabase' : '100% Local'}
             </div>
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-emerald-400"></div>

@@ -3,8 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAppStore } from '@/lib/session';
 import { Button, Alert, Card, Spinner } from '@/components/ui';
-import { localStorageAdapter } from '@/lib/storage/local-adapter';
-import { db } from '@/lib/database/local-adapter';
+import { storageAdapter, databaseAdapter } from '@/lib/config';
 import { generateAesKey, exportAesKey, encryptFileWithAes, decryptFileWithAes, importAesKey } from '@/lib/crypto/aes';
 import { importPublicKeyJwk, decryptAesKeyWithRsa, decryptPrivateKeyWithPassword, encryptAesKeyWithRsa } from '@/lib/crypto/rsa';
 import { deriveHmacKey, calculateHmac, verifyHmac } from '@/lib/crypto/hmac';
@@ -25,7 +24,7 @@ export default function DashboardPage() {
       (async () => {
         setLoading(true);
         try {
-          const allFiles = await localStorageAdapter.getUserFiles(user.id);
+const allFiles = await storageAdapter.getUserFiles(user.id);
           setFiles(allFiles);
         } catch (err: any) {
           setError(err.message);
@@ -48,16 +47,16 @@ export default function DashboardPage() {
       const { encryptedData, iv } = await encryptFileWithAes(fileData, aesKey);
       const hmacKey = await deriveHmacKey(aesKeyRaw);
       const hmac = await calculateHmac(encryptedData, hmacKey);
-      const publicKeyJwk = user.publicKeyJwk || (await db.getUserById(user.id))?.publicKeyJwk;
+      const publicKeyJwk = user.publicKeyJwk || (await databaseAdapter.getUserById(user.id))?.publicKeyJwk;
       if (!publicKeyJwk) throw new Error('Clave pública no encontrada');
       const publicKey = await importPublicKeyJwk(publicKeyJwk);
       const encryptedAesKey = await encryptAesKeyWithRsa(aesKeyRaw, publicKey);
       const storageName = `${user.id}/${file.name}_${Date.now()}`;
-      await localStorageAdapter.storeFile(storageName, encryptedData);
+      await storageAdapter.storeFile(storageName, encryptedData);
       const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const metadata = { id: fileId, userId: user.id, originalName: file.name, storageName, encryptedAesKey, iv, hmac, originalSize: file.size, createdAt: new Date().toISOString(), version: '1.0' };
-      await localStorageAdapter.storeMetadata(metadata);
-      const allFiles = await localStorageAdapter.getUserFiles(user.id);
+      await storageAdapter.storeMetadata(metadata);
+      const allFiles = await storageAdapter.getUserFiles(user.id);
       setFiles(allFiles);
       setMessage('Archivo cifrado y almacenado exitosamente');
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -76,11 +75,11 @@ export default function DashboardPage() {
     setDownloadingFileId(fileId);
     setError(null);
     try {
-      const metadata = await localStorageAdapter.getMetadata(fileId) as any;
+      const metadata = await storageAdapter.getMetadata(fileId) as any;
       if (!metadata || metadata.userId !== user.id) throw new Error('Archivo no autorizado');
-      const encryptedData = await localStorageAdapter.getFile(metadata.storageName);
+      const encryptedData = await storageAdapter.getFile(metadata.storageName);
       if (!encryptedData) throw new Error('Archivo cifrado no encontrado');
-      const encPrivateKey = await db.getEncryptedPrivateKey(user.id);
+      const encPrivateKey = await databaseAdapter.getEncryptedPrivateKey(user.id);
       if (!encPrivateKey) throw new Error('Clave privada cifrada no encontrada');
       const privateKey = await decryptPrivateKeyWithPassword(encPrivateKey.ciphertext, encPrivateKey.iv, encPrivateKey.salt, downloadPassword);
       const aesKeyRaw = await decryptAesKeyWithRsa(metadata.encryptedAesKey, privateKey);
