@@ -42,10 +42,30 @@ CREATE TABLE IF NOT EXISTS public.encrypted_private_keys (
   salt BYTEA NOT NULL,
   iterations INTEGER NOT NULL DEFAULT 310000,
   algorithm TEXT NOT NULL DEFAULT 'AES-GCM',
-  keyLength INTEGER NOT NULL DEFAULT 256,
+  "keyLength" INTEGER NOT NULL DEFAULT 256,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Migración para instalaciones creadas con keyLength sin comillas.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'encrypted_private_keys'
+      AND column_name = 'keylength'
+  ) AND NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'encrypted_private_keys'
+      AND column_name = 'keyLength'
+  ) THEN
+    ALTER TABLE public.encrypted_private_keys RENAME COLUMN keylength TO "keyLength";
+  END IF;
+END $$;
 
 -- Habilitar RLS
 ALTER TABLE encrypted_private_keys ENABLE ROW LEVEL SECURITY;
