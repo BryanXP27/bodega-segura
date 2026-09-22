@@ -1,0 +1,10 @@
+export { db } from '@/lib/database/local-adapter';
+export { localStorageAdapter } from '@/lib/storage/local-adapter';
+export { supabaseStorageAdapter } from '@/lib/storage/supabase-adapter';
+export { supabaseDbAdapter } from '@/lib/storage/supabase-adapter';
+export { default as localAuthAdapter } from '@/lib/auth/local-adapter';
+export { supabaseAuthAdapter } from '@/lib/auth/supabase-adapter';
+export { hashPassword, verifyPassword } from '@/lib/auth/password-hash';
+export { useAppStore } from '@/lib/session';
+export { CRYPTO_CONFIG } from '@/lib/crypto';
+export * from '@/lib/crypto';

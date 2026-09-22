@@ -1,0 +1,16 @@
+export const CRYPTO_CONFIG: Record<string, number | string | boolean> = {
+  RSA_KEY_SIZE: 2048,
+  PBKDF2_ITERATIONS: 310000,
+  PBKDF2_HASH: 'SHA-256',
+  AES_KEY_LENGTH: 256,
+  AES_ALGORITHM: 'AES-GCM',
+  RSA_ALGORITHM: 'RSA-OAEP',
+  RSA_OAEP_HASH: 'SHA-256',
+  HMAC_ALGORITHM: 'HMAC',
+  HMAC_HASH: 'SHA-256',
+  IV_LENGTH: 12,
+  SALT_LENGTH: 16,
+  PBKDF2_KEY_LENGTH: 256,
+} as const;
+
+export type AlgorithmName = 'AES-GCM' | 'RSA-OAEP' | 'PBKDF2' | 'HMAC-SHA256';

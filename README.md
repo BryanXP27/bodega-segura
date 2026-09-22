@@ -1,36 +1,114 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Bóveda Segura - Proyecto 2: Cifrado Híbrido
 
-## Getting Started
+## Descripción
 
-First, run the development server:
+Aplicación web académica para el curso de Seguridad y Criptografía de la Universidad Nacional de Cañete. Sistema de bóveda de archivos cifrados utilizando cifrado híbrido.
+
+### Algoritmos implementados
+
+- **AES-256-GCM**: Cifrado de archivos
+- **RSA-OAEP (SHA-256)**: Protección de claves AES (2048 bits)
+- **PBKDF2 (310,000 iteraciones, SHA-256)**: Derivación de claves desde contraseñas
+- **HMAC-SHA256**: Verificación de integridad de archivos
+
+## Instalación
+
+### Requisitos previos
+
+- Node.js 20+
+- npm
+
+### Instalación local
 
 ```bash
+# Clonar el repositorio
+git clone <url-del-repo>
+cd bodega-segura
+
+# Instalar dependencias
+npm install
+
+# Ejecutar en desarrollo
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+La aplicación estará disponible en `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Variables de entorno
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Copie el archivo `.env.example`:
 
-## Learn More
+```bash
+cp .env.example .env
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Estructura del proyecto
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+src/
+├── app/                      # Páginas Next.js (App Router)
+│   ├── page.tsx             # Página de inicio
+│   ├── login/
+│   ├── register/
+│   ├── dashboard/
+│   └── api/                 # Rutas API
+├── lib/
+│   ├── crypto/              # Módulo criptográfico
+│   │   ├── aes.ts           # Cifrado AES-256-GCM
+│   │   ├── rsa.ts           # RSA-OAEP
+│   │   ├── pbkdf2.ts        # Derivación PBKDF2
+│   │   ├── hmac.ts          # HMAC-SHA256
+│   │   └── index.ts
+│   ├── auth/                # Módulo de autenticación
+│   │   ├── local-adapter.ts # Adaptador local
+│   │   └── supabase-adapter.ts # Adaptador Supabase (placeholder)
+│   ├── storage/             # Módulo de almacenamiento
+│   │   ├── local-adapter.ts # IndexedDB para desarrollo
+│   │   └── supabase-adapter.ts # Supabase Storage (placeholder)
+│   ├── database/            # Módulo de base de datos
+│   │   └── local-adapter.ts # IndexedDB
+│   └── session/             # Gestión de sesión (Zustand)
+├── components/              # Componentes React
+│   ├── ui/                  # Componentes de UI
+│   └── forms/               # Formularios
+└── hooks/                   # Hooks personalizados
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Arquitectura Modular
 
-## Deploy on Vercel
+La aplicación está organizada en módulos independientes con interfaces claras:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Autenticación**: Adaptable de local a Supabase Auth
+- **Criptografía**: Web Crypto API (ejecutado en el navegador)
+- **Almacenamiento**: IndexedDB local, reemplazable por Supabase Storage
+- **Base de datos**: IndexedDB local, reemplazable por PostgreSQL
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Migración a Supabase
+
+Para conectar Supabase:
+
+1. Configurar las variables de entorno en `.env`:
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-clave-anonima
+   ```
+2. Reemplazar los adaptadores locales por las implementaciones de `supabase-adapter.ts`
+3. Las páginas y componentes frontend no necesitan cambios
+
+## Despliegue en Vercel
+
+1. Conectar el repositorio GitHub con Vercel
+2. Configurar las variables de entorno en el panel de Vercel
+3. Desplegar
+
+## Seguridad
+
+- Los archivos se cifran **antes** de ser almacenados
+- La clave privada del usuario nunca se almacena en texto plano
+- La contraseña se usa con PBKDF2 para derivar claves de cifrado
+- Los archivos se verifican con HMAC-SHA256 antes de la descarga
+- No se almacenan contraseñas ni claves privadas sin cifrar
+
+## Licencia
+
+Proyecto académico - Universidad Nacional de Cañete
