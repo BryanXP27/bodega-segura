@@ -144,8 +144,8 @@ CREATE POLICY "Users can delete own files" ON files
 
 -- Habilitar correo electrónico en Supabase Auth
 -- En el panel de Supabase: Authentication > Settings
-- Asegurarse de que "Enable email sign-up" esté activado
-- Asegurarse de que "Enable email confirmations" esté configurado según prefiera
+-- Asegurarse de que "Enable email sign-up" esté activado
+-- Asegurarse de que "Enable email confirmations" esté configurado según prefiera
 
 -- ============================================
 -- NOTAS IMPORTANTES
