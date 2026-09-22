@@ -20,7 +20,12 @@ function getSupabase(): SupabaseClient {
 export const supabaseDb = {
   async createUser(profile: UserProfile): Promise<void> {
     const supabase = getSupabase();
-    const { error } = await supabase.from('profiles').upsert(profile);
+    const { error } = await supabase.from('profiles').upsert({
+      id: profile.id,
+      email: profile.email,
+      publicKeyJwk: profile.publicKeyJwk ?? null,
+      createdAt: profile.createdAt,
+    });
     if (error) throw new Error(`Failed to create user: ${error.message}`);
   },
 
