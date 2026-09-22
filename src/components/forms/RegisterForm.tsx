@@ -6,7 +6,7 @@ import { Button } from '@/components/ui';
 import Link from 'next/link';
 
 export function RegisterForm() {
-  const { register, setMessage, setError } = useAppStore();
+  const { register, message, clearMessage } = useAppStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -16,13 +16,13 @@ export function RegisterForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
+    clearMessage();
     if (password !== confirmPassword) { setFormError('Las contraseñas no coinciden'); return; }
     if (password.length < 8) { setFormError('La contraseña debe tener al menos 8 caracteres'); return; }
     if (!email.includes('@')) { setFormError('Formato de correo inválido'); return; }
     setLoading(true);
     try {
       await register(email, password, confirmPassword);
-      setMessage('Registro completado exitosamente');
     } catch (err: any) {
       setFormError(err.message);
     } finally {
@@ -89,6 +89,12 @@ export function RegisterForm() {
             <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/5 p-3 text-sm text-cyan-100/70">
               🔑 Se generará un par de claves RSA-2048 y se cifrará tu clave privada con PBKDF2
             </div>
+
+            {message && (
+              <div className="rounded-xl border border-emerald-300/20 bg-emerald-300/10 p-3 text-sm text-emerald-100">
+                {message}
+              </div>
+            )}
 
             {formError && (
               <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-sm text-red-300">

@@ -1,16 +1,22 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/session';
 import { Button } from '@/components/ui';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export function LoginForm() {
-  const { login, setUser, setSessionId, setAuthenticated, setFiles, setMessage, setError } = useAppStore();
+  const { login, setFiles, setMessage, isAuthenticated } = useAppStore();
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState('');
+
+  useEffect(() => {
+    if (isAuthenticated) router.replace('/dashboard');
+  }, [isAuthenticated, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,13 +27,10 @@ export function LoginForm() {
     }
     setLoading(true);
     try {
-      const result = await login(email, password);
-      const user = await (await import('@/lib/database/local-adapter')).db.getUserById(result.userId);
-      setUser(user ? { ...user, publicKey: null } : null);
-      setSessionId(result.sessionId);
-      setAuthenticated(true);
+      await login(email, password);
       setFiles([]);
       setMessage('Inicio de sesión exitoso');
+      router.replace('/dashboard');
     } catch (err: any) {
       setFormError(err.message);
     } finally {

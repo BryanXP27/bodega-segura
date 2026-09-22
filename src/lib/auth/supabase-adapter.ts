@@ -38,7 +38,12 @@ export const supabaseAuthAdapter: AuthAdapter = {
   async login(email: string, password: string): Promise<{ userId: string; sessionId: string }> {
     const supabase = getSupabase();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (error.message.toLowerCase().includes('email not confirmed')) {
+        throw new Error('Tu correo aún no está confirmado. Revisa tu bandeja de entrada y confirma la cuenta antes de iniciar sesión.');
+      }
+      throw new Error(error.message);
+    }
 
     if (!data.user || !data.session) {
       throw new Error('Login failed: no user or session created');

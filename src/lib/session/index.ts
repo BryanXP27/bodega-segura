@@ -59,6 +59,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (password.length < 8) throw new Error('La contraseña debe tener al menos 8 caracteres');
       if (!email.includes('@')) throw new Error('Formato de correo inválido');
       const { userId, sessionId } = await authAdapter.register(email, password);
+      if (!sessionId) {
+        set({
+          user: null,
+          sessionId: null,
+          isAuthenticated: false,
+          loading: false,
+          message: 'Cuenta creada. Revisa tu correo y confirma la cuenta antes de iniciar sesión.',
+        });
+        return;
+      }
       const keyPair = await generateRsaKeyPair();
       const publicKeyJwk = await exportPublicKeyJwk(keyPair.publicKey);
       await databaseAdapter.updateUserPublicKey(userId, publicKeyJwk);
@@ -75,7 +85,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const { userId, sessionId } = await authAdapter.login(email, password);
-      const user = await databaseAdapter.getUserById(userId);
+      let user = await databaseAdapter.getUserById(userId);
+      if (!user) {
+        const keyPair = await generateRsaKeyPair();
+        const publicKeyJwk = await exportPublicKeyJwk(keyPair.publicKey);
+        await databaseAdapter.createUser({
+          id: userId,
+          email,
+          publicKey: null,
+          createdAt: new Date().toISOString(),
+        });
+        await databaseAdapter.updateUserPublicKey(userId, publicKeyJwk);
+        const { encryptedData, iv, salt } = await encryptPrivateKeyWithPassword(keyPair.privateKey, password);
+        await databaseAdapter.saveEncryptedPrivateKey(userId, {
+          ciphertext: encryptedData,
+          iv,
+          salt,
+          iterations: 310000,
+          algorithm: 'AES-GCM',
+          keyLength: 256,
+          userId,
+        });
+        user = await databaseAdapter.getUserById(userId);
+      }
       set({ user: user ? { ...user, publicKey: null } : null, sessionId, isAuthenticated: true, loading: false });
       return { userId, sessionId };
     } catch (err: any) {

@@ -7,33 +7,36 @@
 -- ============================================
 -- 1. TABLA DE PERFILES (profiles)
 -- ============================================
-CREATE TABLE IF NOT EXISTS profiles (
+CREATE TABLE IF NOT EXISTS public.profiles (
   id TEXT PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
-  publicKeyJwk JSONB,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  "publicKeyJwk" JSONB,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Habilitar Row Level Security (RLS)
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
 -- Política: Los usuarios pueden ver su propio perfil
+DROP POLICY IF EXISTS "Users can view own profile" ON profiles;
 CREATE POLICY "Users can view own profile" ON profiles
-  FOR SELECT USING (auth.uid() = id);
+  FOR SELECT USING (auth.uid()::TEXT = id);
 
 -- Política: Los usuarios pueden actualizar su propio perfil
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
 CREATE POLICY "Users can update own profile" ON profiles
-  FOR UPDATE USING (auth.uid() = id);
+  FOR UPDATE USING (auth.uid()::TEXT = id);
 
 -- Política: Los usuarios pueden insertar su propio perfil
+DROP POLICY IF EXISTS "Users can insert own profile" ON profiles;
 CREATE POLICY "Users can insert own profile" ON profiles
-  FOR INSERT WITH CHECK (auth.uid() = id);
+  FOR INSERT WITH CHECK (auth.uid()::TEXT = id);
 
 -- ============================================
 -- 2. TABLA DE CLAVES PRIVADAS CIFRADAS
 -- ============================================
-CREATE TABLE IF NOT EXISTS encrypted_private_keys (
-  userId TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS public.encrypted_private_keys (
+  "userId" TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
   ciphertext BYTEA NOT NULL,
   iv BYTEA NOT NULL,
   salt BYTEA NOT NULL,
@@ -48,30 +51,33 @@ CREATE TABLE IF NOT EXISTS encrypted_private_keys (
 ALTER TABLE encrypted_private_keys ENABLE ROW LEVEL SECURITY;
 
 -- Política: Los usuarios pueden ver su propia clave privada cifrada
+DROP POLICY IF EXISTS "Users can view own encrypted key" ON encrypted_private_keys;
 CREATE POLICY "Users can view own encrypted key" ON encrypted_private_keys
-  FOR SELECT USING (auth.uid() = userId);
+  FOR SELECT USING (auth.uid()::TEXT = "userId");
 
 -- Política: Los usuarios pueden actualizar su propia clave privada cifrada
+DROP POLICY IF EXISTS "Users can update own encrypted key" ON encrypted_private_keys;
 CREATE POLICY "Users can update own encrypted key" ON encrypted_private_keys
-  FOR UPDATE USING (auth.uid() = userId);
+  FOR UPDATE USING (auth.uid()::TEXT = "userId");
 
 -- Política: Los usuarios pueden insertar su propia clave privada cifrada
+DROP POLICY IF EXISTS "Users can insert own encrypted key" ON encrypted_private_keys;
 CREATE POLICY "Users can insert own encrypted key" ON encrypted_private_keys
-  FOR INSERT WITH CHECK (auth.uid() = userId);
+  FOR INSERT WITH CHECK (auth.uid()::TEXT = "userId");
 
 -- ============================================
 -- 3. TABLA DE ARCHIVOS
 -- ============================================
-CREATE TABLE IF NOT EXISTS files (
+CREATE TABLE IF NOT EXISTS public.files (
   id TEXT PRIMARY KEY,
-  userId TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  originalName TEXT NOT NULL,
-  storageName TEXT NOT NULL,
-  encryptedAesKey BYTEA NOT NULL,
+  "userId" TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  "originalName" TEXT NOT NULL,
+  "storageName" TEXT NOT NULL,
+  "encryptedAesKey" BYTEA NOT NULL,
   iv BYTEA NOT NULL,
   hmac BYTEA NOT NULL,
-  originalSize BIGINT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
+  "originalSize" BIGINT,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   version TEXT NOT NULL DEFAULT '1.0'
 );
 
@@ -79,24 +85,28 @@ CREATE TABLE IF NOT EXISTS files (
 ALTER TABLE files ENABLE ROW LEVEL SECURITY;
 
 -- Política: Los usuarios pueden ver sus propios archivos
+DROP POLICY IF EXISTS "Users can view own files" ON files;
 CREATE POLICY "Users can view own files" ON files
-  FOR SELECT USING (auth.uid() = userId);
+  FOR SELECT USING (auth.uid()::TEXT = "userId");
 
 -- Política: Los usuarios pueden insertar sus propios archivos
+DROP POLICY IF EXISTS "Users can insert own files" ON files;
 CREATE POLICY "Users can insert own files" ON files
-  FOR INSERT WITH CHECK (auth.uid() = userId);
+  FOR INSERT WITH CHECK (auth.uid()::TEXT = "userId");
 
 -- Política: Los usuarios pueden actualizar sus propios archivos
+DROP POLICY IF EXISTS "Users can update own files" ON files;
 CREATE POLICY "Users can update own files" ON files
-  FOR UPDATE USING (auth.uid() = userId);
+  FOR UPDATE USING (auth.uid()::TEXT = "userId");
 
 -- Política: Los usuarios pueden eliminar sus propios archivos
+DROP POLICY IF EXISTS "Users can delete own files" ON files;
 CREATE POLICY "Users can delete own files" ON files
-  FOR DELETE USING (auth.uid() = userId);
+  FOR DELETE USING (auth.uid()::TEXT = "userId");
 
 -- Índice para búsquedas por usuario
-CREATE INDEX idx_files_userId ON files(userId);
-CREATE INDEX idx_files_createdAt ON files(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_files_userId ON files("userId");
+CREATE INDEX IF NOT EXISTS idx_files_createdAt ON files("createdAt" DESC);
 
 -- ============================================
 -- 4. CONFIGURACIÓN DE ALMACENAMIENTO (Storage)
@@ -114,10 +124,10 @@ CREATE INDEX idx_files_createdAt ON files(created_at DESC);
 -- ============================================
 
 -- Función helper para verificar que el usuario es propietario
-CREATE OR REPLACE FUNCTION is_owner(user_id TEXT)
+CREATE OR REPLACE FUNCTION public.is_owner(user_id TEXT)
 RETURNS BOOLEAN AS $$
 BEGIN
-  RETURN auth.uid() = user_id;
+  RETURN auth.uid()::TEXT = user_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -128,15 +138,15 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- Actualizar políticas para usar la función helper
 DROP POLICY IF EXISTS "Users can view own files" ON files;
 CREATE POLICY "Users can view own files" ON files
-  FOR SELECT USING (is_owner(userId));
+  FOR SELECT USING (is_owner("userId"));
 
 DROP POLICY IF EXISTS "Users can update own files" ON files;
 CREATE POLICY "Users can update own files" ON files
-  FOR UPDATE USING (is_owner(userId));
+  FOR UPDATE USING (is_owner("userId"));
 
 DROP POLICY IF EXISTS "Users can delete own files" ON files;
 CREATE POLICY "Users can delete own files" ON files
-  FOR DELETE USING (is_owner(userId));
+  FOR DELETE USING (is_owner("userId"));
 
 -- ============================================
 -- 7. CONFIGURACIÓN DE AUTENTICACIÓN
