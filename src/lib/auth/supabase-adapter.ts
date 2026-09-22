@@ -23,20 +23,15 @@ export const supabaseAuthAdapter: AuthAdapter = {
       email,
       password,
       options: {
-        data: {
-          // Store additional user data
-        }
+        data: { app: 'bodega-segura' },
+        emailRedirectTo: `${window.location.origin}/login`,
       }
     });
     if (error) throw new Error(error.message);
-
-    if (!data.user || !data.session) {
-      throw new Error('Registration failed: no user or session created');
-    }
-
+    if (!data.user) throw new Error('Registration failed: no user created');
     return {
       userId: data.user.id,
-      sessionId: data.session.access_token,
+      sessionId: data.session?.access_token || '',
     };
   },
 
