@@ -66,13 +66,17 @@ En el panel de Supabase, ve a **Table Editor** y verifica que existan:
 
 ### 4.1 Crear el bucket
 
+El esquema `supabase-schema.sql` crea automáticamente el bucket privado
+`encrypted-files` y sus políticas de acceso. Si ya ejecutaste ese esquema,
+solo verifica que el bucket aparezca en Storage antes de probar una subida.
+
 1. En el panel de Supabase, ve a **Storage**
 2. Haz clic en **"New Bucket"**
 3. Configura:
    - **Bucket name**: `encrypted-files`
    - **Public bucket**: ❌ NO (desmarcado)
    - **File size limit**: 100MB o según necesites
-4. Haz clic en **"Create bucket"**
+4. Haz clic en **"Create bucket"** solo si el bucket no fue creado por el esquema SQL
 
 ### 4.2 Configurar políticas de almacenamiento
 

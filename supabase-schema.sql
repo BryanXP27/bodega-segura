@@ -131,13 +131,36 @@ CREATE INDEX IF NOT EXISTS idx_files_createdAt ON files("createdAt" DESC);
 -- ============================================
 -- 4. CONFIGURACIÓN DE ALMACENAMIENTO (Storage)
 -- ============================================
--- Crear el bucket para archivos cifrados
--- Esto se hace desde el panel de Supabase o con SQL:
+-- Crear el bucket privado para archivos cifrados.
+-- La operación es idempotente y también puede hacerse desde Storage.
 
--- NOTA: El bucket "encrypted-files" debe crearse desde el
--- panel de Supabase Storage o con la API.
--- En la consola de Supabase: Storage > New Bucket > encrypted-files
--- Con RLS habilitado.
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('encrypted-files', 'encrypted-files', false)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "Users can upload own encrypted files" ON storage.objects;
+CREATE POLICY "Users can upload own encrypted files" ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'encrypted-files'
+    AND (storage.foldername(name))[1] = (auth.uid())::TEXT
+  );
+
+DROP POLICY IF EXISTS "Users can read own encrypted files" ON storage.objects;
+CREATE POLICY "Users can read own encrypted files" ON storage.objects
+  FOR SELECT TO authenticated
+  USING (
+    bucket_id = 'encrypted-files'
+    AND (storage.foldername(name))[1] = (auth.uid())::TEXT
+  );
+
+DROP POLICY IF EXISTS "Users can delete own encrypted files" ON storage.objects;
+CREATE POLICY "Users can delete own encrypted files" ON storage.objects
+  FOR DELETE TO authenticated
+  USING (
+    bucket_id = 'encrypted-files'
+    AND (storage.foldername(name))[1] = (auth.uid())::TEXT
+  );
 
 -- ============================================
 -- 5. FUNCIONES DE SEGURIDAD (RLS Policies)

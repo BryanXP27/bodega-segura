@@ -139,6 +139,11 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
 
   const filteredFiles = files.filter((file) => file.originalName.toLowerCase().includes(searchQuery.toLowerCase()));
 
+  const focusFiles = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    document.getElementById('archivos')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
     <div className="platform-grid -mx-6 min-h-[calc(100vh-12rem)] px-4 py-6 sm:px-6 relative">
       <div className="relative z-10 mx-auto flex max-w-[1450px] gap-6">
@@ -146,8 +151,8 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
           <div className="sticky top-24 rounded-2xl border border-cyan-100/10 bg-[#071d2a]/80 p-3">
             <div className="mb-6 px-3 pt-2 text-sm font-semibold text-white">Bóveda<span className="text-cyan-300">Segura</span></div>
             <nav className="space-y-1 text-sm">
-              <a className="flex items-center gap-3 rounded-xl bg-cyan-300/15 px-3 py-3 font-medium text-cyan-100" href="#archivos">▦ <span>Mis archivos</span></a>
-              <a className="flex items-center gap-3 rounded-xl px-3 py-3 text-cyan-50/55 transition hover:bg-white/5 hover:text-white" href="#recientes">◷ <span>Recientes</span></a>
+              <a className="flex items-center gap-3 rounded-xl bg-cyan-300/15 px-3 py-3 font-medium text-cyan-100" href="#archivos" onClick={focusFiles}>▦ <span>Mis archivos</span></a>
+              <a className="flex items-center gap-3 rounded-xl px-3 py-3 text-cyan-50/55 transition hover:bg-white/5 hover:text-white" href="#archivos" onClick={focusFiles}>◷ <span>Recientes</span></a>
               <a className="flex items-center gap-3 rounded-xl px-3 py-3 text-cyan-50/55 transition hover:bg-white/5 hover:text-white" href="#seguridad">◈ <span>Seguridad</span></a>
             </nav>
             <div className="my-6 border-t border-white/10" />
