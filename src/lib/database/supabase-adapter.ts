@@ -3,6 +3,51 @@ import { UserProfile, FileMetadata, EncryptedPrivateKey } from '@/types';
 
 let supabaseClient: SupabaseClient | null = null;
 
+function toBytea(value: ArrayBuffer): string {
+  return `\\x${Array.from(new Uint8Array(value), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+function fromBytea(value: ArrayBuffer | Uint8Array | string): ArrayBuffer {
+  if (value instanceof ArrayBuffer) return value;
+  if (value instanceof Uint8Array) {
+    const copy = new Uint8Array(value.byteLength);
+    copy.set(value);
+    return copy.buffer;
+  }
+  if (value.startsWith('\\x')) {
+    const hex = value.slice(2);
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+    }
+    return bytes.buffer;
+  }
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+}
+
+function normalizeEncryptedKey(data: EncryptedPrivateKey & { userId: string }): EncryptedPrivateKey & { userId: string } {
+  return {
+    ...data,
+    ciphertext: fromBytea(data.ciphertext),
+    iv: fromBytea(data.iv),
+    salt: fromBytea(data.salt),
+  };
+}
+
+function normalizeFileMetadata(data: FileMetadata): FileMetadata {
+  return {
+    ...data,
+    encryptedAesKey: fromBytea(data.encryptedAesKey),
+    iv: fromBytea(data.iv),
+    hmac: fromBytea(data.hmac),
+  };
+}
+
 function getSupabase(): SupabaseClient {
   if (supabaseClient) return supabaseClient;
 
@@ -51,7 +96,15 @@ export const supabaseDb = {
 
   async saveEncryptedPrivateKey(userId: string, encKey: EncryptedPrivateKey & { userId: string }): Promise<void> {
     const supabase = getSupabase();
-    const { error } = await supabase.from('encrypted_private_keys').upsert(encKey);
+    const { error } = await supabase.from('encrypted_private_keys').upsert({
+      userId,
+      ciphertext: toBytea(encKey.ciphertext),
+      iv: toBytea(encKey.iv),
+      salt: toBytea(encKey.salt),
+      iterations: encKey.iterations,
+      algorithm: encKey.algorithm,
+      keyLength: encKey.keyLength,
+    });
     if (error) throw new Error(`Failed to save encrypted key: ${error.message}`);
   },
 
@@ -59,12 +112,23 @@ export const supabaseDb = {
     const supabase = getSupabase();
     const { data, error } = await supabase.from('encrypted_private_keys').select('*').eq('userId', userId).single();
     if (error) return null;
-    return data;
+    return normalizeEncryptedKey(data);
   },
 
   async createFileMetadata(metadata: FileMetadata): Promise<void> {
     const supabase = getSupabase();
-    const { error } = await supabase.from('files').insert(metadata);
+    const { error } = await supabase.from('files').insert({
+      id: metadata.id,
+      userId: metadata.userId,
+      originalName: metadata.originalName,
+      storageName: metadata.storageName,
+      encryptedAesKey: toBytea(metadata.encryptedAesKey),
+      iv: toBytea(metadata.iv),
+      hmac: toBytea(metadata.hmac),
+      originalSize: metadata.originalSize,
+      createdAt: metadata.createdAt,
+      version: metadata.version,
+    });
     if (error) throw new Error(`Failed to create file metadata: ${error.message}`);
   },
 
@@ -72,14 +136,14 @@ export const supabaseDb = {
     const supabase = getSupabase();
     const { data, error } = await supabase.from('files').select('*').eq('id', fileId).single();
     if (error) return null;
-    return data;
+    return normalizeFileMetadata(data);
   },
 
   async getUserFiles(userId: string): Promise<FileMetadata[]> {
     const supabase = getSupabase();
     const { data, error } = await supabase.from('files').select('*').eq('userId', userId).order('createdAt', { ascending: false });
     if (error) return [];
-    return data || [];
+    return (data || []).map(normalizeFileMetadata);
   },
 
   async deleteFileMetadata(fileId: string): Promise<void> {

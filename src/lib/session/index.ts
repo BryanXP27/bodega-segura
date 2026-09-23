@@ -13,7 +13,7 @@ interface AppState extends AuthState {
   activeFileId: string | null;
   downloadLoading: boolean;
   register: (email: string, password: string, confirmPassword: string) => Promise<void>;
-  login: (email: string, password: string) => Promise<{ userId: string; sessionId: string }>;
+  login: (email: string, password: string) => Promise<{ userId: string; sessionId: string; repaired: boolean }>;
   logout: () => Promise<void>;
   uploadFile: (file: File) => Promise<void>;
   downloadFile: (fileId: string, password: string) => Promise<ArrayBuffer>;
@@ -86,15 +86,28 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const { userId, sessionId } = await authAdapter.login(email, password);
       let user = await databaseAdapter.getUserById(userId);
+      let repaired = false;
       if (!user) {
-        const keyPair = await generateRsaKeyPair();
-        const publicKeyJwk = await exportPublicKeyJwk(keyPair.publicKey);
         await databaseAdapter.createUser({
           id: userId,
           email,
           publicKey: null,
           createdAt: new Date().toISOString(),
         });
+      }
+      const encryptedKey = await databaseAdapter.getEncryptedPrivateKey(userId);
+      let needsKeyRepair = !encryptedKey;
+      if (encryptedKey) {
+        try {
+          await decryptPrivateKeyWithPassword(encryptedKey.ciphertext, encryptedKey.iv, encryptedKey.salt, password);
+        } catch {
+          needsKeyRepair = true;
+        }
+      }
+      if (needsKeyRepair) {
+        repaired = true;
+        const keyPair = await generateRsaKeyPair();
+        const publicKeyJwk = await exportPublicKeyJwk(keyPair.publicKey);
         await databaseAdapter.updateUserPublicKey(userId, publicKeyJwk);
         const { encryptedData, iv, salt } = await encryptPrivateKeyWithPassword(keyPair.privateKey, password);
         await databaseAdapter.saveEncryptedPrivateKey(userId, {
@@ -106,10 +119,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           keyLength: 256,
           userId,
         });
-        user = await databaseAdapter.getUserById(userId);
+        set({ message: 'Se repararon las claves de la cuenta. Vuelve a subir los archivos anteriores.' });
       }
+      user = await databaseAdapter.getUserById(userId);
       set({ user: user ? { ...user, publicKey: null } : null, sessionId, isAuthenticated: true, loading: false });
-      return { userId, sessionId };
+      return { userId, sessionId, repaired };
     } catch (err: any) {
       set({ loading: false, error: err.message });
       throw err;

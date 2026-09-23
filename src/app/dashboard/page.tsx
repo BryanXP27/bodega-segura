@@ -255,14 +255,14 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-white">Descargar Archivo</h3>
-                <p className="text-gray-400 text-sm">Ingresa tu contraseña para descifrar</p>
+                <p className="text-gray-400 text-sm">Ingresa la contraseña de tu cuenta para descifrar</p>
               </div>
               <div className="flex gap-2 w-full sm:w-auto">
                 <input
                   type="password"
                   value={downloadPassword}
                   onChange={(e) => setDownloadPassword(e.target.value)}
-                  placeholder="Contraseña de descifrado"
+                  placeholder="Contraseña de tu cuenta"
                   className="flex-1 rounded-xl border border-cyan-100/10 bg-[#071c2a] px-4 py-3 text-sm text-white outline-none placeholder:text-cyan-50/35 focus:border-cyan-300/50"
                 />
                 <Button

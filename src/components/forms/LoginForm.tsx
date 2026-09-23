@@ -27,9 +27,11 @@ export function LoginForm() {
     }
     setLoading(true);
     try {
-      await login(email, password);
+      const result = await login(email, password);
       setFiles([]);
-      setMessage('Inicio de sesión exitoso');
+      setMessage(result.repaired
+        ? 'Se repararon las claves de la cuenta. Vuelve a subir los archivos anteriores.'
+        : 'Inicio de sesión exitoso');
       router.replace('/dashboard');
     } catch (err: any) {
       setFormError(err.message);
