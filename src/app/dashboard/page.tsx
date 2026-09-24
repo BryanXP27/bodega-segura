@@ -15,6 +15,10 @@ export default function DashboardPage() {
   const [downloadPassword, setDownloadPassword] = useState('');
   const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewText, setPreviewText] = useState<string | null>(null);
+  const [previewName, setPreviewName] = useState('');
+  const [previewKind, setPreviewKind] = useState<'image' | 'pdf' | 'text' | 'unsupported' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -100,6 +104,61 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
     } finally {
       setDownloadingFileId(null);
     }
+  };
+
+  const handlePreview = async (fileId: string) => {
+    if (!user || !downloadPassword) {
+      setError('Ingresa la contraseña de tu cuenta para ver el archivo');
+      return;
+    }
+    setDownloadingFileId(fileId);
+    setError(null);
+    try {
+      const metadata = await storageAdapter.getMetadata(fileId) as any;
+      if (!metadata || metadata.userId !== user.id) throw new Error('Archivo no autorizado');
+      const encryptedData = await storageAdapter.getFile(metadata.storageName);
+      if (!encryptedData) throw new Error('Archivo cifrado no encontrado');
+      const encPrivateKey = await databaseAdapter.getEncryptedPrivateKey(user.id);
+      if (!encPrivateKey) throw new Error('Clave privada cifrada no encontrada');
+      const privateKey = await decryptPrivateKeyWithPassword(encPrivateKey.ciphertext, encPrivateKey.iv, encPrivateKey.salt, downloadPassword);
+      const aesKeyRaw = await decryptAesKeyWithRsa(metadata.encryptedAesKey, privateKey);
+      const aesKey = await importAesKey(aesKeyRaw);
+      const fileData = await decryptFileWithAes(encryptedData, aesKey, metadata.iv);
+      const hmacKey = await deriveHmacKey(aesKeyRaw);
+      if (!await verifyHmac(encryptedData, hmacKey, metadata.hmac)) throw new Error('La integridad del archivo ha sido comprometida');
+
+      const extension = metadata.originalName.split('.').pop()?.toLowerCase() || '';
+      const type = extension === 'pdf' ? 'application/pdf' : extension === 'txt' || extension === 'json' || extension === 'md' || extension === 'csv' ? 'text/plain' : `image/${extension}`;
+      setPreviewName(metadata.originalName);
+      setPreviewText(null);
+      if (type.startsWith('image/') && ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(extension)) {
+        setPreviewUrl(URL.createObjectURL(new Blob([fileData], { type })));
+        setPreviewKind('image');
+      } else if (type === 'application/pdf') {
+        setPreviewUrl(URL.createObjectURL(new Blob([fileData], { type })));
+        setPreviewKind('pdf');
+      } else if (type === 'text/plain') {
+        setPreviewUrl(null);
+        setPreviewText(new TextDecoder().decode(fileData));
+        setPreviewKind('text');
+      } else {
+        setPreviewUrl(null);
+        setPreviewKind('unsupported');
+      }
+      setDownloadPassword('');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setDownloadingFileId(null);
+    }
+  };
+
+  const closePreview = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+    setPreviewText(null);
+    setPreviewKind(null);
+    setPreviewName('');
   };
 
   if (!isAuthenticated) {
@@ -236,6 +295,14 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
                   </div>
                   <div className="mt-5 flex shrink-0 items-center gap-2">
                     <Button
+                      variant="ghost"
+                      size="sm"
+                      isLoading={downloadingFileId === file.id}
+                      onClick={() => setActiveFileId(file.id)}
+                    >
+                      👁 Ver
+                    </Button>
+                    <Button
                       variant="secondary"
                       size="sm"
                       isLoading={downloadingFileId === file.id}
@@ -254,8 +321,8 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
           <Card className="border-glow">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <h3 className="text-lg font-semibold text-white">Descargar Archivo</h3>
-                <p className="text-gray-400 text-sm">Ingresa la contraseña de tu cuenta para descifrar</p>
+                <h3 className="text-lg font-semibold text-white">Abrir archivo</h3>
+                <p className="text-gray-400 text-sm">Usa la contraseña de tu cuenta para verlo o descargarlo</p>
               </div>
               <div className="flex gap-2 w-full sm:w-auto">
                 <input
@@ -268,13 +335,28 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
                 <Button
                   size="md"
                   isLoading={downloadingFileId === activeFileId}
-                  onClick={() => handleDownload(activeFileId)}
+                  onClick={() => handlePreview(activeFileId)}
                 >
-                  Descifrar
+                  Ver contenido
                 </Button>
+                <Button variant="secondary" size="md" isLoading={downloadingFileId === activeFileId} onClick={() => handleDownload(activeFileId)}>Descargar</Button>
               </div>
             </div>
           </Card>
+        )}
+
+        {previewKind && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#021019]/85 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`Vista previa de ${previewName}`}>
+            <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-cyan-100/15 bg-[#082331] shadow-2xl">
+              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4"><div><p className="text-xs uppercase tracking-wider text-cyan-300">Vista previa descifrada</p><h3 className="max-w-[70vw] truncate font-semibold text-white">{previewName}</h3></div><button onClick={closePreview} className="rounded-lg px-3 py-2 text-cyan-50/70 hover:bg-white/10" aria-label="Cerrar vista previa">✕</button></div>
+              <div className="min-h-64 overflow-auto p-5">
+                {previewKind === 'image' && previewUrl && <img src={previewUrl} alt={previewName} className="mx-auto max-h-[65vh] max-w-full rounded-lg object-contain" />}
+                {previewKind === 'pdf' && previewUrl && <iframe src={previewUrl} title={previewName} className="h-[65vh] w-full rounded-lg bg-white" />}
+                {previewKind === 'text' && <pre className="whitespace-pre-wrap break-words rounded-xl bg-[#041923] p-5 text-sm leading-6 text-cyan-50/85">{previewText}</pre>}
+                {previewKind === 'unsupported' && <div className="flex min-h-56 items-center justify-center text-center text-sm text-cyan-50/60">Este formato no tiene vista previa. Usa “Descargar” para abrirlo con la aplicación correspondiente.</div>}
+              </div>
+            </div>
+          </div>
         )}
 
         <div className="text-center mt-8 text-sm text-cyan-50/35"><Button variant="ghost" size="sm" onClick={() => storeLogout()}>Cerrar sesión</Button></div>
