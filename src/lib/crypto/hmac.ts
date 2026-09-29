@@ -1,8 +1,14 @@
+import { audit, auditWarn, shortHex } from '@/lib/debug/audit';
+
 export async function calculateHmac(
   data: ArrayBuffer,
   key: CryptoKey
 ): Promise<ArrayBuffer> {
-  return crypto.subtle.sign('HMAC', key, data);
+  const mac = await crypto.subtle.sign('HMAC', key, data);
+  audit('🧬', 'HMAC-SHA256 calculado sobre bytes cifrados', {
+    huella: shortHex(mac),
+  });
+  return mac;
 }
 
 export async function verifyHmac(
@@ -23,7 +29,18 @@ export async function verifyHmac(
     result |= computedArray[i] ^ expectedArray[i];
   }
 
-  return result === 0;
+  const ok = result === 0;
+  if (ok) {
+    audit('✅', 'HMAC verificado: huella coincide, archivo íntegro', {
+      huella: shortHex(computedHmac),
+    });
+  } else {
+    auditWarn('🚫', 'HMAC NO coincide: archivo manipulado o corrupto, descarga bloqueada', {
+      calculado: shortHex(computedHmac),
+      esperado: shortHex(expectedHmac),
+    });
+  }
+  return ok;
 }
 
 export async function deriveHmacKey(aesKeyRaw: ArrayBuffer): Promise<CryptoKey> {

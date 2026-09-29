@@ -1,3 +1,5 @@
+import { audit } from '@/lib/debug/audit';
+
 export async function deriveKeyFromPassword(
   password: string,
   salt: ArrayBuffer
@@ -23,6 +25,8 @@ export async function deriveKeyFromPassword(
     false,
     ['encrypt', 'decrypt']
   );
+
+  audit('🧪', 'PBKDF2-SHA256: 310000 iteraciones aplicadas');
 
   return derivedKey;
 }

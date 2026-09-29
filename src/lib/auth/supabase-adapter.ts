@@ -1,5 +1,6 @@
 import { getSupabaseClient as getSupabase } from '@/lib/supabase/client';
 import { AuthAdapter } from '@/types';
+import { audit } from '@/lib/debug/audit';
 
 export { getSupabase };
 
@@ -16,6 +17,7 @@ export const supabaseAuthAdapter: AuthAdapter = {
     });
     if (error) throw new Error(error.message);
     if (!data.user) throw new Error('Registration failed: no user created');
+    audit('👤', 'Supabase Auth: cuenta creada', { email });
     return {
       userId: data.user.id,
       sessionId: data.session?.access_token || '',
@@ -36,6 +38,7 @@ export const supabaseAuthAdapter: AuthAdapter = {
       throw new Error('Login failed: no user or session created');
     }
 
+    audit('👤', 'Supabase Auth: sesión iniciada', { email });
     return {
       userId: data.user.id,
       sessionId: data.session.access_token,
@@ -46,6 +49,7 @@ export const supabaseAuthAdapter: AuthAdapter = {
     const supabase = getSupabase();
     const { error } = await supabase.auth.signOut();
     if (error) throw new Error(error.message);
+    audit('👋', 'Supabase Auth: sesión cerrada');
   },
 
   async getSession(sessionId: string): Promise<{ userId: string } | null> {

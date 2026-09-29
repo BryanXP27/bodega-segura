@@ -8,6 +8,7 @@ import { generateAesKey, exportAesKey, encryptFileWithAes, decryptFileWithAes, i
 import { importPublicKeyJwk, decryptAesKeyWithRsa, decryptPrivateKeyWithPassword, encryptAesKeyWithRsa } from '@/lib/crypto/rsa';
 import { deriveHmacKey, calculateHmac, verifyHmac } from '@/lib/crypto/hmac';
 import { generateRsaKeyPair, exportPublicKeyJwk } from '@/lib/crypto';
+import { auditGroup } from '@/lib/debug/audit';
 import Link from 'next/link';
 
 export default function DashboardPage() {
@@ -44,6 +45,7 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
+    const endAudit = auditGroup(`⬆️ SUBIDA: ${file.name} (${file.size} B)`);
     setUploading(true);
     setError(null);
     try {
@@ -69,6 +71,7 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
       setError(err.message);
     } finally {
       setUploading(false);
+      endAudit();
       if (fileInputRef.current) fileInputRef.current.value = '';
       e.target.value = '';
     }
@@ -126,6 +129,7 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
     }
     setDownloadingFileId(fileId);
     setError(null);
+    const endAudit = auditGroup(`⬇️ DESCARGA VERIFICADA: ${fileId}`);
     try {
       const metadata = await storageAdapter.getMetadata(fileId) as any;
       if (!metadata || metadata.userId !== user.id) throw new Error('Archivo no autorizado');
@@ -159,6 +163,7 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
       handleFileError(err, fileId);
     } finally {
       setDownloadingFileId(null);
+      endAudit();
     }
   };
 
@@ -169,6 +174,7 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
     }
     setDownloadingFileId(fileId);
     setError(null);
+    const endAudit = auditGroup(`👁 VISTA PREVIA VERIFICADA: ${fileId}`);
     try {
       const metadata = await storageAdapter.getMetadata(fileId) as any;
       if (!metadata || metadata.userId !== user.id) throw new Error('Archivo no autorizado');
@@ -214,6 +220,7 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
       handleFileError(err, fileId);
     } finally {
       setDownloadingFileId(null);
+      endAudit();
     }
   };
 

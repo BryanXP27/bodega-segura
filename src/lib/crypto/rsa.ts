@@ -1,7 +1,8 @@
 import { deriveKeyFromPassword } from '@/lib/crypto/pbkdf2';
+import { audit, shortHex } from '@/lib/debug/audit';
 
 export async function generateRsaKeyPair(): Promise<CryptoKeyPair> {
-  return crypto.subtle.generateKey(
+  const pair = await crypto.subtle.generateKey(
     {
       name: 'RSA-OAEP',
       modulusLength: 2048,
@@ -11,6 +12,8 @@ export async function generateRsaKeyPair(): Promise<CryptoKeyPair> {
     true,
     ['encrypt', 'decrypt']
   );
+  audit('🔐', 'RSA-OAEP-2048-SHA256: par de claves generado (una vez por cuenta)');
+  return pair;
 }
 
 export async function exportPublicKeyJwk(key: CryptoKey): Promise<JsonWebKey> {
@@ -46,22 +49,29 @@ export async function encryptAesKeyWithRsa(
   aesKeyRaw: ArrayBuffer,
   publicKey: CryptoKey
 ): Promise<ArrayBuffer> {
-  return crypto.subtle.encrypt(
+  const wrapped = await crypto.subtle.encrypt(
     { name: 'RSA-OAEP', hash: 'SHA-256' } as RsaOaepParams,
     publicKey,
     aesKeyRaw
   );
+  audit('🔏', 'RSA: clave AES envuelta con la pública', {
+    claveAes: `${aesKeyRaw.byteLength} B`,
+    envuelta: `${wrapped.byteLength} B (solo la privada la abre)`,
+  });
+  return wrapped;
 }
 
 export async function decryptAesKeyWithRsa(
   encryptedAesKey: ArrayBuffer,
   privateKey: CryptoKey
 ): Promise<ArrayBuffer> {
-  return crypto.subtle.decrypt(
+  const raw = await crypto.subtle.decrypt(
     { name: 'RSA-OAEP', hash: 'SHA-256' } as RsaOaepParams,
     privateKey,
     encryptedAesKey
   );
+  audit('🔓', 'RSA: clave AES recuperada con la privada');
+  return raw;
 }
 
 export async function encryptPrivateKeyWithPassword(
@@ -99,6 +109,10 @@ export async function encryptPrivateKeyWithPassword(
     privateKeyRaw
   );
 
+  audit('🛡️', 'PBKDF2-SHA256 310k + AES-GCM: privada protegida con la contraseña', {
+    salt: shortHex(salt),
+    cifrado: `${encryptedData.byteLength} B (el servidor jamás la ve en claro)`,
+  });
   return { encryptedData, iv: iv as unknown as ArrayBuffer, salt: salt as unknown as ArrayBuffer };
 }
 
@@ -114,6 +128,7 @@ export async function decryptPrivateKeyWithPassword(
     derivedKey,
     encryptedData
   );
+  audit('🛡️', 'PBKDF2: privada desbloqueada con la contraseña');
   return crypto.subtle.importKey(
     'pkcs8',
     decryptedRaw,

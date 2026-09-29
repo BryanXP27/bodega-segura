@@ -1,9 +1,13 @@
+import { audit, shortHex } from '@/lib/debug/audit';
+
 export async function generateAesKey(): Promise<CryptoKey> {
-  return crypto.subtle.generateKey(
+  const key = await crypto.subtle.generateKey(
     { name: 'AES-GCM', length: 256 },
     true,
     ['encrypt', 'decrypt']
   );
+  audit('🔑', 'AES-256-GCM: clave efímera generada (32 B aleatorios, una por archivo)');
+  return key;
 }
 
 export async function encryptFileWithAes(
@@ -16,6 +20,11 @@ export async function encryptFileWithAes(
     aesKey,
     fileData
   );
+  audit('📦', 'AES-GCM: archivo cifrado', {
+    plano: `${fileData.byteLength} B`,
+    cifrado: `${encryptedData.byteLength} B`,
+    iv: shortHex(iv),
+  });
   return { encryptedData, iv: iv.buffer };
 }
 
@@ -29,6 +38,10 @@ export async function decryptFileWithAes(
     aesKey,
     encryptedData
   );
+  audit('📂', 'AES-GCM: descifrado autenticado OK (tag válido)', {
+    cifrado: `${encryptedData.byteLength} B`,
+    plano: `${decryptedData.byteLength} B`,
+  });
   return decryptedData;
 }
 

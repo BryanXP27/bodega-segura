@@ -4,6 +4,7 @@ import { authAdapter, storageAdapter, databaseAdapter } from '@/lib/config';
 import { generateRsaKeyPair, exportPublicKeyJwk, encryptPrivateKeyWithPassword, importPublicKeyJwk, decryptAesKeyWithRsa, decryptPrivateKeyWithPassword, encryptAesKeyWithRsa } from '@/lib/crypto/rsa';
 import { generateAesKey, exportAesKey, encryptFileWithAes, decryptFileWithAes, importAesKey } from '@/lib/crypto/aes';
 import { deriveHmacKey, calculateHmac, verifyHmac } from '@/lib/crypto/hmac';
+import { auditGroup } from '@/lib/debug/audit';
 
 interface AppState extends AuthState {
   files: FileMetadata[];
@@ -54,12 +55,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   register: async (email, password, confirmPassword) => {
     set({ loading: true, error: null });
+    const endAudit = auditGroup(`📝 REGISTRO: ${email}`);
     try {
       if (password !== confirmPassword) throw new Error('Las contraseñas no coinciden');
       if (password.length < 8) throw new Error('La contraseña debe tener al menos 8 caracteres');
       if (!email.includes('@')) throw new Error('Formato de correo inválido');
       const { userId, sessionId } = await authAdapter.register(email, password);
       if (!sessionId) {
+        endAudit();
         set({
           user: null,
           sessionId: null,
@@ -75,7 +78,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       const { encryptedData, iv, salt } = await encryptPrivateKeyWithPassword(keyPair.privateKey, password);
       await databaseAdapter.saveEncryptedPrivateKey(userId, { ciphertext: encryptedData, iv, salt, iterations: 310000, algorithm: 'AES-GCM', keyLength: 256, userId });
       set({ user: { id: userId, email, publicKey: null, createdAt: new Date().toISOString() }, sessionId, isAuthenticated: true, loading: false, message: 'Registro completado exitosamente' });
+      endAudit();
     } catch (err: any) {
+      endAudit();
       set({ loading: false, error: err.message });
       throw err;
     }
@@ -83,6 +88,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   login: async (email, password) => {
     set({ loading: true, error: null });
+    const endAudit = auditGroup(`🔑 LOGIN: ${email}`);
     try {
       const { userId, sessionId } = await authAdapter.login(email, password);
       let user = await databaseAdapter.getUserById(userId);
@@ -123,8 +129,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       user = await databaseAdapter.getUserById(userId);
       set({ user: user ? { ...user, publicKey: null } : null, sessionId, isAuthenticated: true, loading: false });
+      endAudit();
       return { userId, sessionId, repaired };
     } catch (err: any) {
+      endAudit();
       set({ loading: false, error: err.message });
       throw err;
     }
@@ -140,6 +148,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { user, sessionId } = get();
     if (!sessionId || !user) throw new Error('Debe iniciar sesión para subir archivos');
     set({ loading: true, error: null });
+    const endAudit = auditGroup(`⬆️ SUBIDA: ${file.name} (${file.size} B)`);
     try {
       const fileData = await file.arrayBuffer();
       const aesKey = await generateAesKey();
@@ -158,7 +167,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       await storageAdapter.storeMetadata(metadata);
       const files = await storageAdapter.getUserFiles(user.id);
       set({ files, loading: false, message: 'Archivo cifrado y almacenado exitosamente' });
+      endAudit();
     } catch (err: any) {
+      endAudit();
       set({ loading: false, error: err.message });
       throw err;
     }
@@ -168,6 +179,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { user } = get();
     if (!user) throw new Error('Debe iniciar sesión');
     set({ downloadLoading: true, error: null });
+    const endAudit = auditGroup(`⬇️ DESCARGA VERIFICADA: ${fileId}`);
     try {
       const metadata = await storageAdapter.getMetadata(fileId) as any;
       if (!metadata || metadata.userId !== user.id) throw new Error('Archivo no autorizado');
@@ -193,8 +205,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       a.href = url; a.download = metadata.originalName;
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
       set({ downloadLoading: false, message: 'Archivo descargado verificado correctamente' });
+      endAudit();
       return fileData;
     } catch (err: any) {
+      endAudit();
       set({ downloadLoading: false, error: err.message });
       throw err;
     }
