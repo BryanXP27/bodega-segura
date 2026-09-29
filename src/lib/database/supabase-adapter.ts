@@ -1,7 +1,5 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseClient as getSupabase } from '@/lib/supabase/client';
 import { UserProfile, FileMetadata, EncryptedPrivateKey } from '@/types';
-
-let supabaseClient: SupabaseClient | null = null;
 
 function toBytea(value: ArrayBuffer): string {
   return `\\x${Array.from(new Uint8Array(value), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
@@ -46,20 +44,6 @@ function normalizeFileMetadata(data: FileMetadata): FileMetadata {
     iv: fromBytea(data.iv),
     hmac: fromBytea(data.hmac),
   };
-}
-
-function getSupabase(): SupabaseClient {
-  if (supabaseClient) return supabaseClient;
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!url || !anonKey) {
-    throw new Error('Supabase URL and ANON_KEY environment variables are required');
-  }
-
-  supabaseClient = createClient(url, anonKey);
-  return supabaseClient;
 }
 
 export const supabaseDb = {

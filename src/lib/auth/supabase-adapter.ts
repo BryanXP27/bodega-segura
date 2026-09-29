@@ -1,18 +1,5 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseClient as getSupabase } from '@/lib/supabase/client';
 import { AuthAdapter } from '@/types';
-
-let supabaseClient: SupabaseClient | null = null;
-
-function getSupabase(): SupabaseClient {
-  if (supabaseClient) return supabaseClient;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) {
-    throw new Error('Supabase URL and ANON_KEY environment variables are required');
-  }
-  supabaseClient = createClient(url, anonKey);
-  return supabaseClient;
-}
 
 export { getSupabase };
 
