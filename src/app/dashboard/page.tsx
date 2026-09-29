@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAppStore } from '@/lib/session';
 import { Button, Alert, Card, Spinner } from '@/components/ui';
-import { storageAdapter, databaseAdapter } from '@/lib/config';
+import { storageAdapter, databaseAdapter, backendName } from '@/lib/config';
 import { generateAesKey, exportAesKey, encryptFileWithAes, decryptFileWithAes, importAesKey } from '@/lib/crypto/aes';
 import { importPublicKeyJwk, decryptAesKeyWithRsa, decryptPrivateKeyWithPassword, encryptAesKeyWithRsa } from '@/lib/crypto/rsa';
 import { deriveHmacKey, calculateHmac, verifyHmac } from '@/lib/crypto/hmac';
@@ -216,7 +216,7 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
             </nav>
             <div className="my-6 border-t border-white/10" />
             <div className="px-3 text-[11px] font-semibold uppercase tracking-wider text-cyan-50/35">Almacenamiento</div>
-            <div className="mt-3 px-3"><div className="mb-2 flex justify-between text-xs text-cyan-50/55"><span>Local</span><span>{files.length} archivos</span></div><div className="h-1.5 rounded-full bg-white/10"><div className="h-full w-[18%] rounded-full bg-cyan-300" /></div></div>
+            <div className="mt-3 px-3"><div className="mb-2 flex justify-between text-xs text-cyan-50/55"><span>{backendName === 'azure' ? 'Azure' : backendName === 'supabase' ? 'Supabase' : 'Local'}</span><span>{files.length} archivos</span></div><div className="h-1.5 rounded-full bg-white/10"><div className="h-full w-[18%] rounded-full bg-cyan-300" /></div></div>
             <div className="mt-10 rounded-xl bg-cyan-300/8 p-3 text-xs leading-5 text-cyan-50/55"><span className="text-lg">🛡️</span><br /><strong className="text-cyan-100/80">Bóveda protegida</strong><br />Tus archivos se cifran antes de almacenarse.</div>
           </div>
         </aside>

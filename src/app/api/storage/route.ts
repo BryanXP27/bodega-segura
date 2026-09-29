@@ -1,26 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/database/local-adapter';
-import { localStorageAdapter } from '@/lib/storage/local-adapter';
 
-export async function POST(request: NextRequest) {
-  try {
-    const { action, userId, fileId } = await request.json();
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-    switch (action) {
-      case 'validate-owner': {
-        const metadata = await localStorageAdapter.getMetadata(fileId);
-        if (!metadata) {
-          return NextResponse.json({ authorized: false }, { status: 404 });
-        }
-        return NextResponse.json({ authorized: metadata.userId === userId });
-      }
-      case 'store-file': {
-        return NextResponse.json({ success: true });
-      }
-      default:
-        return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
-    }
-  } catch (error) {
-    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
-  }
+// El stub anterior usaba IndexedDB en el servidor (no existe en App Service).
+// Usa /api/storage/upload, /api/storage/download, /api/storage/delete y /api/files.
+export async function GET() {
+  return NextResponse.json({
+    error: 'Ruta desactivada. Usa /api/storage/upload, /api/storage/download o /api/storage/delete.',
+  }, { status: 410 });
+}
+
+export async function POST(_request: NextRequest) {
+  return NextResponse.json(
+    { error: 'Ruta desactivada. Usa /api/storage/upload, /api/storage/download o /api/storage/delete.' },
+    { status: 410 }
+  );
 }

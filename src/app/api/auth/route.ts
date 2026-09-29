@@ -1,29 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET(request: NextRequest) {
-  return NextResponse.json({ 
-    status: 'ok', 
-    service: 'bodega-segura', 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+export async function GET() {
+  return NextResponse.json({
+    status: 'ok',
+    service: 'bodega-segura',
+    backend: process.env.NEXT_PUBLIC_BACKEND || 'auto',
     timestamp: new Date().toISOString(),
     crypto: {
       algorithms: ['AES-256-GCM', 'RSA-OAEP-SHA256', 'PBKDF2-SHA256', 'HMAC-SHA256'],
-      version: '1.0'
-    }
+      version: '1.0',
+    },
   });
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const { action, userId, fileId } = await request.json();
-
-    switch (action) {
-      case 'validate-owner': {
-        return NextResponse.json({ authorized: true });
-      }
-      default:
-        return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
-    }
-  } catch (error) {
-    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
-  }
+// El stub anterior devolvía { authorized: true } sin validar: se desactiva.
+// Usa /api/auth/register, /api/auth/login, /api/auth/logout y /api/users/me.
+export async function POST(_request: NextRequest) {
+  return NextResponse.json(
+    { error: 'Ruta desactivada. Usa /api/auth/register, /api/auth/login o /api/auth/logout.' },
+    { status: 410 }
+  );
 }

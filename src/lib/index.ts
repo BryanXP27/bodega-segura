@@ -1,10 +1,14 @@
 export { db } from '@/lib/database/local-adapter';
 export { supabaseDb } from '@/lib/database/supabase-adapter';
+export { azureDb } from '@/lib/database/azure-client-adapter';
 export { localStorageAdapter } from '@/lib/storage/local-adapter';
 export { supabaseStorageAdapter } from '@/lib/storage/supabase-adapter';
+export { azureStorageAdapter } from '@/lib/storage/azure-client-adapter';
 export { default as localAuthAdapter } from '@/lib/auth/local-adapter';
 export { supabaseAuthAdapter, getSupabaseAuth, getCurrentUser } from '@/lib/auth/supabase-adapter';
+export { azureAuthAdapter } from '@/lib/auth/azure-client-adapter';
 export { hashPassword, verifyPassword } from '@/lib/auth/password-hash';
+export { backendName, isAzureBackend, isSupabaseConfigured } from '@/lib/config';
 export { useAppStore } from '@/lib/session';
 export { CRYPTO_CONFIG } from '@/lib/crypto';
 export * from '@/lib/crypto';
