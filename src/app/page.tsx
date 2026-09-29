@@ -17,7 +17,7 @@ export default function HomePage() {
               <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
               Cifrado Híbrido · AES-256 · RSA-OAEP
             </div>
-            <h1 className="text-6xl md:text-7xl font-bold text-white leading-tight tracking-tight">
+            <h1 className="text-5xl sm:text-6xl md:text-7xl font-bold text-white leading-tight tracking-tight text-balance">
               Bóveda<span className="gradient-text">Segura</span>
             </h1>
             <p className="text-xl md:text-2xl text-gray-400 max-w-2xl mx-auto leading-relaxed">

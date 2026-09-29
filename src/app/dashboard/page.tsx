@@ -319,12 +319,12 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
 
         {activeFileId && (
           <Card className="border-glow">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-white">Abrir archivo</h3>
                 <p className="text-gray-400 text-sm">Usa la contraseña de tu cuenta para verlo o descargarlo</p>
               </div>
-              <div className="flex gap-2 w-full sm:w-auto">
+              <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
                 <input
                   type="password"
                   value={downloadPassword}

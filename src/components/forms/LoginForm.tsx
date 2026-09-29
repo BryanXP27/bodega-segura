@@ -41,8 +41,8 @@ export function LoginForm() {
   };
 
   return (
-    <div className="page-enter min-h-[calc(100vh-12rem)] flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-5xl grid lg:grid-cols-[1.05fr_0.95fr] overflow-hidden rounded-[2rem] border border-cyan-100/15 bg-[#092331]/85 shadow-2xl shadow-cyan-950/40">
+    <div className="page-enter flex justify-center px-4 py-8 sm:py-10">
+      <div className="m-auto w-full max-w-4xl xl:max-w-5xl grid lg:grid-cols-[1.05fr_0.95fr] overflow-hidden rounded-[2rem] border border-cyan-100/15 bg-[#092331]/85 shadow-2xl shadow-cyan-950/40">
         <div className="hidden lg:flex relative flex-col justify-between p-12 overflow-hidden bg-gradient-to-br from-[#0c4050] via-[#0b2e40] to-[#071a28]">
           <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full border border-cyan-200/20" />
           <div className="absolute right-12 top-20 h-36 w-36 rounded-full border border-teal-200/20" />
@@ -67,7 +67,7 @@ export function LoginForm() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-xl border border-cyan-100/15 bg-[#071c2a] px-4 py-3.5 text-sm text-white placeholder-cyan-50/35 outline-none transition-all focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/15"
+                  className="w-full rounded-xl border border-cyan-100/15 bg-[#071c2a] pl-11 pr-4 py-3.5 text-sm text-white placeholder-cyan-50/35 outline-none transition-all focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/15"
                   placeholder="usuario@example.com"
                   required
                 />
@@ -81,7 +81,7 @@ export function LoginForm() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-xl border border-cyan-100/15 bg-[#071c2a] px-4 py-3.5 text-sm text-white placeholder-cyan-50/35 outline-none transition-all focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/15"
+                  className="w-full rounded-xl border border-cyan-100/15 bg-[#071c2a] pl-11 pr-4 py-3.5 text-sm text-white placeholder-cyan-50/35 outline-none transition-all focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/15"
                   placeholder="Tu contraseña"
                   required
                 />

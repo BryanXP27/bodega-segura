@@ -31,8 +31,8 @@ export function RegisterForm() {
   };
 
   return (
-    <div className="page-enter min-h-[calc(100vh-12rem)] flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-5xl grid lg:grid-cols-[0.95fr_1.05fr] overflow-hidden rounded-[2rem] border border-cyan-100/15 bg-[#092331]/85 shadow-2xl shadow-cyan-950/40">
+    <div className="page-enter flex justify-center px-4 py-8 sm:py-10">
+      <div className="m-auto w-full max-w-4xl xl:max-w-5xl grid lg:grid-cols-[0.95fr_1.05fr] overflow-hidden rounded-[2rem] border border-cyan-100/15 bg-[#092331]/85 shadow-2xl shadow-cyan-950/40">
         <div className="hidden lg:flex flex-col justify-between p-12 bg-gradient-to-br from-[#0c4050] via-[#0b2e40] to-[#071a28]">
           <div><div className="mb-12 flex items-center gap-3 text-lg font-semibold text-white"><span className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 text-xl">🔐</span>BóvedaSegura</div><p className="mb-4 text-xs font-semibold uppercase tracking-[0.28em] text-cyan-200/70">Empieza con privacidad</p><h2 className="max-w-md text-4xl font-semibold leading-tight text-white">Una bóveda limpia para todo lo importante.</h2><p className="mt-5 max-w-sm text-sm leading-6 text-cyan-50/65">Crea tu cuenta y genera tus claves de seguridad automáticamente.</p></div>
           <div className="space-y-3 text-sm text-cyan-50/70"><p>✓ Cifrado antes de almacenar</p><p>✓ Claves privadas protegidas</p><p>✓ Almacenamiento local</p></div>
@@ -50,7 +50,7 @@ export function RegisterForm() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-xl border border-cyan-100/15 bg-[#071c2a] px-4 py-3.5 text-sm text-white placeholder-cyan-50/35 outline-none transition-all focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/15"
+                  className="w-full rounded-xl border border-cyan-100/15 bg-[#071c2a] pl-11 pr-4 py-3.5 text-sm text-white placeholder-cyan-50/35 outline-none transition-all focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/15"
                   placeholder="usuario@example.com"
                   required
                 />
@@ -64,7 +64,7 @@ export function RegisterForm() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-xl border border-cyan-100/15 bg-[#071c2a] px-4 py-3.5 text-sm text-white placeholder-cyan-50/35 outline-none transition-all focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/15"
+                  className="w-full rounded-xl border border-cyan-100/15 bg-[#071c2a] pl-11 pr-4 py-3.5 text-sm text-white placeholder-cyan-50/35 outline-none transition-all focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/15"
                   placeholder="Mínimo 8 caracteres"
                   required
                   minLength={8}
@@ -79,7 +79,7 @@ export function RegisterForm() {
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full rounded-xl border border-cyan-100/15 bg-[#071c2a] px-4 py-3.5 text-sm text-white placeholder-cyan-50/35 outline-none transition-all focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/15"
+                  className="w-full rounded-xl border border-cyan-100/15 bg-[#071c2a] pl-11 pr-4 py-3.5 text-sm text-white placeholder-cyan-50/35 outline-none transition-all focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/15"
                   placeholder="Repita su contraseña"
                   required
                 />

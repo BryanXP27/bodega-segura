@@ -21,6 +21,18 @@ body {
   color: var(--foreground);
   font-family: 'Avenir Next', 'Trebuchet MS', sans-serif;
   min-height: 100vh;
+  overflow-x: clip;
+}
+
+img, video, iframe {
+  max-width: 100%;
+}
+
+/* Evita el zoom automático de iOS al enfocar inputs (requiere >=16px) */
+@media (max-width: 640px) {
+  input {
+    font-size: 16px;
+  }
 }
 
 button, input { font: inherit; }
