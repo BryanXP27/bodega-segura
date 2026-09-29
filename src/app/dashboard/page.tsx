@@ -22,6 +22,7 @@ export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -42,7 +43,7 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
-    setLoading(true);
+    setUploading(true);
     setError(null);
     try {
       const fileData = await file.arrayBuffer();
@@ -63,11 +64,12 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
       const allFiles = await storageAdapter.getUserFiles(user.id);
       setFiles(allFiles);
       setMessage('Archivo cifrado y almacenado exitosamente');
-      if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err: any) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      e.target.value = '';
     }
   };
 
@@ -236,8 +238,8 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
 
         <div className="flex flex-col gap-3 sm:flex-row">
           <div className="relative flex-1"><span className="absolute left-4 top-1/2 -translate-y-1/2 text-cyan-50/35">⌕</span><input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Buscar archivos..." className="w-full rounded-xl border border-cyan-100/10 bg-[#071c2a]/80 py-3.5 pl-11 pr-4 text-sm text-white outline-none placeholder:text-cyan-50/35 focus:border-cyan-300/50" /></div>
-          <label htmlFor="fileInput" className="cursor-pointer"><Button variant="primary" size="md" isLoading={loading}>＋ Subir archivo</Button></label>
-          <input ref={fileInputRef} type="file" onChange={handleFileUpload} className="hidden" id="fileInput" />
+          <Button type="button" variant="primary" size="md" isLoading={uploading} onClick={() => fileInputRef.current?.click()}>＋ Subir archivo</Button>
+          <input ref={fileInputRef} type="file" onChange={handleFileUpload} className="hidden" tabIndex={-1} />
         </div>
 
         {message && (
@@ -265,12 +267,9 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
               <div className="text-6xl mb-4">📁</div>
               <h3 className="text-lg font-semibold text-gray-300 mb-2">Sin archivos aún</h3>
               <p className="text-gray-500 text-sm mb-6">Sube tu primer archivo cifrado para comenzar.</p>
-              <label htmlFor="fileInputEmpty" className="cursor-pointer">
-                <Button variant="primary" size="md">
-                  Subir Primer Archivo
-                </Button>
-              </label>
-              <input type="file" className="hidden" id="fileInputEmpty" onChange={handleFileUpload} />
+              <Button type="button" variant="primary" size="md" isLoading={uploading} onClick={() => fileInputRef.current?.click()}>
+                Subir Primer Archivo
+              </Button>
             </div>
           ) : filteredFiles.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-cyan-100/15 p-12 text-center text-sm text-cyan-50/45">No encontramos archivos con ese nombre.</div>
