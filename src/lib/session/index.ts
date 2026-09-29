@@ -178,7 +178,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       const privateKey = await decryptPrivateKeyWithPassword(encPrivateKey.ciphertext, encPrivateKey.iv, encPrivateKey.salt, password);
       const aesKeyRaw = await decryptAesKeyWithRsa(metadata.encryptedAesKey, privateKey);
       const aesKey = await importAesKey(aesKeyRaw);
-      const fileData = await decryptFileWithAes(encryptedData, aesKey, metadata.iv);
+      let fileData: ArrayBuffer;
+      try {
+        fileData = await decryptFileWithAes(encryptedData, aesKey, metadata.iv);
+      } catch {
+        throw new Error('Integridad comprometida: el archivo fue modificado fuera de la aplicación y se bloqueó la descarga por seguridad');
+      }
       const hmacKey = await deriveHmacKey(aesKeyRaw);
       const isValid = await verifyHmac(encryptedData, hmacKey, metadata.hmac);
       if (!isValid) throw new Error('Integridad comprometida: el archivo fue modificado fuera de la aplicación y se bloqueó la descarga por seguridad');

@@ -75,7 +75,14 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
   };
 
   const handleFileError = (err: any, fileId: string) => {
-    const message = err?.message || 'Error desconocido';
+    const message =
+      err instanceof Error && err.message
+        ? err.message
+        : typeof err === 'string' && err
+          ? err
+          : err?.name
+            ? String(err.name)
+            : 'Error desconocido';
     if (message.includes('integridad') || message.includes('comprometida')) {
       const meta = files.find((f) => f.id === fileId);
       setBlockedFile({ id: fileId, name: meta?.originalName || 'Archivo' });
@@ -129,7 +136,15 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
       const privateKey = await decryptPrivateKeyWithPassword(encPrivateKey.ciphertext, encPrivateKey.iv, encPrivateKey.salt, downloadPassword);
       const aesKeyRaw = await decryptAesKeyWithRsa(metadata.encryptedAesKey, privateKey);
       const aesKey = await importAesKey(aesKeyRaw);
-      const fileData = await decryptFileWithAes(encryptedData, aesKey, metadata.iv);
+      let fileData: ArrayBuffer;
+      try {
+        fileData = await decryptFileWithAes(encryptedData, aesKey, metadata.iv);
+      } catch {
+        // AES-GCM es cifrado autenticado: si falla con la contraseña correcta,
+        // los bytes fueron manipulados o se corrompieron. Se trata como
+        // evidencia de manipulación y va a la tarjeta de bloqueo.
+        throw new Error('La integridad del archivo ha sido comprometida');
+      }
       const hmacKey = await deriveHmacKey(aesKeyRaw);
       const isValid = await verifyHmac(encryptedData, hmacKey, metadata.hmac);
       if (!isValid) throw new Error('La integridad del archivo ha sido comprometida');
@@ -164,7 +179,15 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
       const privateKey = await decryptPrivateKeyWithPassword(encPrivateKey.ciphertext, encPrivateKey.iv, encPrivateKey.salt, downloadPassword);
       const aesKeyRaw = await decryptAesKeyWithRsa(metadata.encryptedAesKey, privateKey);
       const aesKey = await importAesKey(aesKeyRaw);
-      const fileData = await decryptFileWithAes(encryptedData, aesKey, metadata.iv);
+      let fileData: ArrayBuffer;
+      try {
+        fileData = await decryptFileWithAes(encryptedData, aesKey, metadata.iv);
+      } catch {
+        // AES-GCM es cifrado autenticado: si falla con la contraseña correcta,
+        // los bytes fueron manipulados o se corrompieron. Se trata como
+        // evidencia de manipulación y va a la tarjeta de bloqueo.
+        throw new Error('La integridad del archivo ha sido comprometida');
+      }
       const hmacKey = await deriveHmacKey(aesKeyRaw);
       if (!await verifyHmac(encryptedData, hmacKey, metadata.hmac)) throw new Error('La integridad del archivo ha sido comprometida');
 
