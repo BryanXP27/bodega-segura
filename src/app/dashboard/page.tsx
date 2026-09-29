@@ -15,6 +15,7 @@ export default function DashboardPage() {
   const [downloadPassword, setDownloadPassword] = useState('');
   const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
+  const [blockedFile, setBlockedFile] = useState<{ id: string; name: string } | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewText, setPreviewText] = useState<string | null>(null);
   const [previewName, setPreviewName] = useState('');
@@ -73,6 +74,44 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
     }
   };
 
+  const handleFileError = (err: any, fileId: string) => {
+    const message = err?.message || 'Error desconocido';
+    if (message.includes('integridad') || message.includes('comprometida')) {
+      const meta = files.find((f) => f.id === fileId);
+      setBlockedFile({ id: fileId, name: meta?.originalName || 'Archivo' });
+      setActiveFileId(null);
+      setDownloadPassword('');
+      setError(null);
+    } else {
+      setError(message);
+    }
+  };
+
+  const handleDeleteBlocked = async () => {
+    if (!blockedFile || !user) return;
+    setDownloadingFileId(blockedFile.id);
+    setError(null);
+    try {
+      const metadata = await storageAdapter.getMetadata(blockedFile.id) as any;
+      if (metadata) {
+        try {
+          await storageAdapter.deleteFile(metadata.storageName);
+        } catch {
+          // Si el blob ya no existe, igual se eliminan los metadatos
+        }
+      }
+      await databaseAdapter.deleteFileMetadata(blockedFile.id);
+      const allFiles = await storageAdapter.getUserFiles(user.id);
+      setFiles(allFiles);
+      setBlockedFile(null);
+      setMessage('Archivo comprometido eliminado de la bóveda');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setDownloadingFileId(null);
+    }
+  };
+
   const handleDownload = async (fileId: string) => {
     if (!user || !downloadPassword) {
       setError('Debe ingresar su contraseña para descargar');
@@ -102,7 +141,7 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
       setMessage('Archivo descargado verificado correctamente');
       setDownloadPassword('');
     } catch (err: any) {
-      setError(err.message);
+      handleFileError(err, fileId);
     } finally {
       setDownloadingFileId(null);
     }
@@ -149,7 +188,7 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
       }
       setDownloadPassword('');
     } catch (err: any) {
-      setError(err.message);
+      handleFileError(err, fileId);
     } finally {
       setDownloadingFileId(null);
     }
@@ -339,6 +378,40 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
                   Ver contenido
                 </Button>
                 <Button variant="secondary" size="md" isLoading={downloadingFileId === activeFileId} onClick={() => handleDownload(activeFileId)}>Descargar</Button>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {blockedFile && (
+          <Card className="!border-red-500/30">
+            <div className="space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-red-500/15 text-2xl">
+                  🛡️
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-lg font-semibold text-white">Archivo bloqueado por seguridad</h3>
+                  <p className="truncate text-sm text-gray-400">{blockedFile.name}</p>
+                </div>
+              </div>
+              <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm leading-6 text-red-200">
+                Detectamos que este archivo fue <strong>modificado fuera de la aplicación</strong>: su huella
+                de integridad (HMAC-SHA256) ya no coincide con la registrada al subirlo. Por eso bloqueamos
+                la vista previa y la descarga.
+              </div>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-gray-300">
+                <li>El archivo podría estar dañado o haber sido manipulado por un tercero.</li>
+                <li>Tu contraseña es correcta: el problema no es tu acceso, es el contenido.</li>
+                <li>Sube de nuevo el archivo original desde tu dispositivo o elimina esta copia comprometida.</li>
+              </ul>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button variant="secondary" size="md" onClick={() => setBlockedFile(null)}>
+                  Entendido
+                </Button>
+                <Button variant="danger" size="md" isLoading={downloadingFileId === blockedFile.id} onClick={handleDeleteBlocked}>
+                  Eliminar archivo comprometido
+                </Button>
               </div>
             </div>
           </Card>

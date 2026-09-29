@@ -181,7 +181,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const fileData = await decryptFileWithAes(encryptedData, aesKey, metadata.iv);
       const hmacKey = await deriveHmacKey(aesKeyRaw);
       const isValid = await verifyHmac(encryptedData, hmacKey, metadata.hmac);
-      if (!isValid) throw new Error('La integridad del archivo ha sido comprometida');
+      if (!isValid) throw new Error('Integridad comprometida: el archivo fue modificado fuera de la aplicación y se bloqueó la descarga por seguridad');
       const blob = new Blob([fileData], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

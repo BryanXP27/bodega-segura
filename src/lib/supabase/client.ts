@@ -15,6 +15,14 @@ export function getSupabaseClient(): SupabaseClient {
   if (!url || !anonKey) {
     throw new Error('Supabase URL and ANON_KEY environment variables are required');
   }
-  client = createClient(url, anonKey);
+  client = createClient(url, anonKey, {
+    global: {
+      // Los objetos se suben con cacheControl 3600 y el navegador cachearía
+      // los bytes descargados: tras una manipulación externa serviría la
+      // copia vieja (HMAC válido) hasta refrescar. no-store obliga a traer
+      // bytes frescos en cada descarga/vista previa.
+      fetch: (input, init) => fetch(input, { ...(init || {}), cache: 'no-store' }),
+    },
+  });
   return client;
 }
