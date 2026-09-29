@@ -392,23 +392,27 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
                 <h3 className="text-lg font-semibold text-white">Abrir archivo</h3>
                 <p className="text-gray-400 text-sm">Usa la contraseña de tu cuenta para verlo o descargarlo</p>
               </div>
-              <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+              <form
+                className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto"
+                onSubmit={(e) => { e.preventDefault(); if (activeFileId) handlePreview(activeFileId); }}
+              >
                 <input
                   type="password"
                   value={downloadPassword}
                   onChange={(e) => setDownloadPassword(e.target.value)}
                   placeholder="Contraseña de tu cuenta"
+                  autoComplete="current-password"
                   className="flex-1 rounded-xl border border-cyan-100/10 bg-[#071c2a] px-4 py-3 text-sm text-white outline-none placeholder:text-cyan-50/35 focus:border-cyan-300/50"
                 />
                 <Button
+                  type="submit"
                   size="md"
                   isLoading={downloadingFileId === activeFileId}
-                  onClick={() => handlePreview(activeFileId)}
                 >
                   Ver contenido
                 </Button>
-                <Button variant="secondary" size="md" isLoading={downloadingFileId === activeFileId} onClick={() => handleDownload(activeFileId)}>Descargar</Button>
-              </div>
+                <Button type="button" variant="secondary" size="md" isLoading={downloadingFileId === activeFileId} onClick={() => handleDownload(activeFileId)}>Descargar</Button>
+              </form>
             </div>
           </Card>
         )}

@@ -150,18 +150,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ loading: true, error: null });
     const endAudit = auditGroup(`⬆️ SUBIDA: ${file.name} (${file.size} B)`);
     try {
+      // 1. Leer el archivo como bytes en memoria; el archivo original no se envía al servidor.
       const fileData = await file.arrayBuffer();
+      // 2. Crear una clave AES aleatoria exclusiva para este archivo.
       const aesKey = await generateAesKey();
       const aesKeyRaw = await exportAesKey(aesKey);
+      // 3. Cifrar el contenido con AES-GCM; se conservan ciphertext e IV para abrirlo.
       const { encryptedData, iv } = await encryptFileWithAes(fileData, aesKey);
+      // 4. Preparar la clave HMAC a partir de la clave AES y firmar el ciphertext.
       const hmacKey = await deriveHmacKey(aesKeyRaw);
       const hmac = await calculateHmac(encryptedData, hmacKey);
+      // 5. Obtener la clave pública del usuario; solo sirve para envolver la clave AES.
       const publicKeyJwk = user.publicKeyJwk || (await databaseAdapter.getUserById(user.id))?.publicKeyJwk;
       if (!publicKeyJwk) throw new Error('Clave pública no encontrada');
       const publicKey = await importPublicKeyJwk(publicKeyJwk);
       const encryptedAesKey = await encryptAesKeyWithRsa(aesKeyRaw, publicKey);
+      // 6. Guardar en Storage únicamente los bytes cifrados, no los bytes originales.
       const storageName = `${user.id}/${file.name}_${Date.now()}`;
       await storageAdapter.storeFile(storageName, encryptedData);
+      // 7. Guardar metadatos para localizar/verificar/descifrar: nombre, IV, HMAC
+      //    y clave AES envuelta. Ninguno revela por sí solo el contenido del archivo.
       const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const metadata = { id: fileId, userId: user.id, originalName: file.name, storageName, encryptedAesKey, iv, hmac, originalSize: file.size, createdAt: new Date().toISOString(), version: '1.0' };
       await storageAdapter.storeMetadata(metadata);
@@ -187,18 +195,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!encryptedData) throw new Error('Archivo cifrado no encontrado');
       const encPrivateKey = await databaseAdapter.getEncryptedPrivateKey(user.id);
       if (!encPrivateKey) throw new Error('Clave privada cifrada no encontrada');
+      // La contraseña del usuario desbloquea su clave privada RSA, cifrada al crear la cuenta.
       const privateKey = await decryptPrivateKeyWithPassword(encPrivateKey.ciphertext, encPrivateKey.iv, encPrivateKey.salt, password);
+      // RSA desenvuelve la clave AES concreta que protegió este archivo.
       const aesKeyRaw = await decryptAesKeyWithRsa(metadata.encryptedAesKey, privateKey);
       const aesKey = await importAesKey(aesKeyRaw);
+      // Comprobar integridad ANTES de descifrar o entregar el archivo: si el objeto
+      // almacenado cambió, se detiene el flujo aunque el registro de metadata exista.
+      const hmacKey = await deriveHmacKey(aesKeyRaw);
+      const isValid = await verifyHmac(encryptedData, hmacKey, metadata.hmac);
+      if (!isValid) throw new Error('Integridad comprometida: el archivo fue modificado fuera de la aplicación y se bloqueó la descarga por seguridad');
+      // AES-GCM hace una segunda comprobación criptográfica integrada al descifrar.
       let fileData: ArrayBuffer;
       try {
         fileData = await decryptFileWithAes(encryptedData, aesKey, metadata.iv);
       } catch {
         throw new Error('Integridad comprometida: el archivo fue modificado fuera de la aplicación y se bloqueó la descarga por seguridad');
       }
-      const hmacKey = await deriveHmacKey(aesKeyRaw);
-      const isValid = await verifyHmac(encryptedData, hmacKey, metadata.hmac);
-      if (!isValid) throw new Error('Integridad comprometida: el archivo fue modificado fuera de la aplicación y se bloqueó la descarga por seguridad');
       const blob = new Blob([fileData], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
