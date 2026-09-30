@@ -1,17 +1,23 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/session';
 import { Button } from '@/components/ui';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export function RegisterForm() {
-  const { register, message, clearMessage } = useAppStore();
+  const { register, message, clearMessage, isAuthenticated } = useAppStore();
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState('');
+
+  useEffect(() => {
+    if (isAuthenticated) router.replace('/dashboard');
+  }, [isAuthenticated, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,6 +29,9 @@ export function RegisterForm() {
     setLoading(true);
     try {
       await register(email, password, confirmPassword);
+      // Solo redirige con sesión activa; si el correo requiere confirmación
+      // se queda mostrando el mensaje (el useEffect cubre el caso activo).
+      if (useAppStore.getState().isAuthenticated) router.replace('/dashboard');
     } catch (err: any) {
       setFormError(err.message);
     } finally {
