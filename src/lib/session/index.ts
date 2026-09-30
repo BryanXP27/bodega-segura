@@ -74,6 +74,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       const keyPair = await generateRsaKeyPair();
       const publicKeyJwk = await exportPublicKeyJwk(keyPair.publicKey);
+      // El perfil debe existir ANTES: encrypted_private_keys.userId referencia
+      // a profiles(id) y sin esta fila el INSERT falla con violación de FK.
+      await databaseAdapter.createUser({
+        id: userId,
+        email,
+        publicKey: null,
+        publicKeyJwk,
+        createdAt: new Date().toISOString(),
+      });
       await databaseAdapter.updateUserPublicKey(userId, publicKeyJwk);
       const { encryptedData, iv, salt } = await encryptPrivateKeyWithPassword(keyPair.privateKey, password);
       await databaseAdapter.saveEncryptedPrivateKey(userId, { ciphertext: encryptedData, iv, salt, iterations: 310000, algorithm: 'AES-GCM', keyLength: 256, userId });
