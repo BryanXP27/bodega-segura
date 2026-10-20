@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.gitignore
+*.log
+.env*.local
+Dockerfile
+.dockerignore
+README.md
+PRESENTACION.md
+AZURE_DEPLOY.md
+GOOGLE_DEPLOY.md
