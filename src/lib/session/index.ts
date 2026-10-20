@@ -85,7 +85,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
       await databaseAdapter.updateUserPublicKey(userId, publicKeyJwk);
       const { encryptedData, iv, salt } = await encryptPrivateKeyWithPassword(keyPair.privateKey, password);
-      await databaseAdapter.saveEncryptedPrivateKey(userId, { ciphertext: encryptedData, iv, salt, iterations: 310000, algorithm: 'AES-GCM', keyLength: 256, userId });
+      await databaseAdapter.updateUserEncryptedKey(userId, { ciphertext: encryptedData, iv, salt, iterations: 310000, algorithm: 'AES-GCM', keyLength: 256 });
       set({ user: { id: userId, email, publicKey: null, createdAt: new Date().toISOString() }, sessionId, isAuthenticated: true, loading: false, message: 'Registro completado exitosamente' });
       endAudit();
     } catch (err: any) {
@@ -125,14 +125,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         const publicKeyJwk = await exportPublicKeyJwk(keyPair.publicKey);
         await databaseAdapter.updateUserPublicKey(userId, publicKeyJwk);
         const { encryptedData, iv, salt } = await encryptPrivateKeyWithPassword(keyPair.privateKey, password);
-        await databaseAdapter.saveEncryptedPrivateKey(userId, {
+        await databaseAdapter.updateUserEncryptedKey(userId, {
           ciphertext: encryptedData,
           iv,
           salt,
           iterations: 310000,
           algorithm: 'AES-GCM',
           keyLength: 256,
-          userId,
         });
         set({ message: 'Se repararon las claves de la cuenta. Vuelve a subir los archivos anteriores.' });
       }

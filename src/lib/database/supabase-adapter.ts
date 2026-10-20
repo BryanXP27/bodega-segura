@@ -98,6 +98,10 @@ export const supabaseDb = {
     });
   },
 
+  async updateUserEncryptedKey(userId: string, encKey: EncryptedPrivateKey): Promise<void> {
+    await this.saveEncryptedPrivateKey(userId, { ...encKey, userId });
+  },
+
   async getEncryptedPrivateKey(userId: string): Promise<(EncryptedPrivateKey & { userId: string }) | null> {
     const supabase = getSupabase();
     const { data, error } = await supabase.from('encrypted_private_keys').select('*').eq('userId', userId).single();

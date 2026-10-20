@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireSession } from '@/lib/azure/auth-server';
-import { query } from '@/lib/azure/pg';
+import { getAuthServer } from '@/lib/backend';
+import { query } from '@/lib/gcp/pg';
 import { base64ToBuffer, mapFile, type FileRow } from '@/lib/azure/rows';
 
 export const runtime = 'nodejs';
@@ -8,7 +8,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await requireSession(request);
+    const auth = await getAuthServer();
+    const session = await auth.requireSession(request);
     const result = await query<FileRow>(
       `SELECT id, user_id, original_name, storage_name, encrypted_aes_key, iv, hmac,
               original_size, created_at, version
@@ -23,7 +24,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireSession(request);
+    const auth = await getAuthServer();
+    const session = await auth.requireSession(request);
     const body = await request.json().catch(() => ({}));
     const id = String(body?.id || '');
     const originalName = String(body?.originalName || '');

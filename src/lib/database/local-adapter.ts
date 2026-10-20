@@ -72,6 +72,10 @@ export const db = {
     await database.put('encryptedKeys', encKey);
   },
 
+  async updateUserEncryptedKey(userId: string, encKey: EncryptedPrivateKey): Promise<void> {
+    await this.saveEncryptedPrivateKey(userId, { ...encKey, userId });
+  },
+
   async getEncryptedPrivateKey(userId: string): Promise<(EncryptedPrivateKey & { userId: string }) | undefined> {
     const database = await getDB();
     return database.get('encryptedKeys', userId);

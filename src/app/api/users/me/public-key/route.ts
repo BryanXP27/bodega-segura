@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireSession } from '@/lib/azure/auth-server';
-import { query } from '@/lib/azure/pg';
+import { getAuthServer } from '@/lib/backend';
+import { query } from '@/lib/gcp/pg';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function PUT(request: NextRequest) {
   try {
-    const session = await requireSession(request);
+    const auth = await getAuthServer();
+    const session = await auth.requireSession(request);
     const body = await request.json().catch(() => ({}));
     const publicKeyJwk = body?.publicKeyJwk;
     if (!publicKeyJwk || typeof publicKeyJwk !== 'object') {

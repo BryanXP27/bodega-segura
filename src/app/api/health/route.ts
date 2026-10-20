@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
-import { query } from '@/lib/azure/pg';
+import { query } from '@/lib/gcp/pg';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Health para Azure App Service. No expone secretos ni datos.
+// Health para Cloud Run. No expone secretos ni datos.
 export async function GET() {
+  const backend = (process.env.NEXT_PUBLIC_BACKEND || 'auto').toLowerCase();
   let db: 'ok' | 'not-configured' | 'error' = 'not-configured';
   if (process.env.DATABASE_URL) {
     try {
@@ -15,13 +16,13 @@ export async function GET() {
       db = 'error';
     }
   }
-  const blob = process.env.AZURE_STORAGE_CONNECTION_STRING || process.env.AZURE_STORAGE_ACCOUNT_URL
+  const blob = process.env.STORAGE_BUCKET || process.env.AZURE_STORAGE_CONNECTION_STRING
     ? 'configured'
     : 'not-configured';
   return NextResponse.json({
     status: 'ok',
     service: 'bodega-segura',
-    backend: 'azure',
+    backend,
     db,
     blob,
     crypto: {

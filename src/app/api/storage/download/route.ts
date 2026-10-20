@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireSession } from '@/lib/azure/auth-server';
-import { assertOwnKey, downloadEncryptedBlob } from '@/lib/azure/blob-server';
+import { getAuthServer, getBlobServer } from '@/lib/backend';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await requireSession(request);
+    const auth = await getAuthServer();
+    const session = await auth.requireSession(request);
     const key = request.nextUrl.searchParams.get('key') || '';
-    assertOwnKey(key, session.userId);
-    const data = await downloadEncryptedBlob(key);
+    const blob = await getBlobServer();
+    blob.assertOwnKey(key, session.userId);
+    const data = await blob.download(key);
     if (!data) return NextResponse.json({ error: 'Archivo no encontrado' }, { status: 404 });
     return new NextResponse(data, {
       headers: {
