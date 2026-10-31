@@ -26,7 +26,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 USER nextjs
-EXPOSE 3000
-ENV PORT=3000
+# Cloud Run expone el contenedor en el puerto definido por la variable PORT
+# (por defecto 8080); el server standalone de Next.js lo respeta.
+EXPOSE 8080
+ENV PORT=8080
 ENV HOSTNAME=0.0.0.0
 CMD ["node", "server.js"]
