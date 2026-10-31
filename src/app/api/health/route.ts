@@ -12,8 +12,11 @@ export async function GET() {
     try {
       await query('SELECT 1 AS ok');
       db = 'ok';
-    } catch {
+    } catch (err) {
       db = 'error';
+      // Surface the real Cloud SQL connection error in Cloud Run logs
+      // (previously swallowed silently, making "db":"error" undiagnosable).
+      console.error('[health] Cloud SQL no respondió:', err instanceof Error ? err.message : err);
     }
   }
   const blob = process.env.STORAGE_BUCKET || process.env.AZURE_STORAGE_CONNECTION_STRING
