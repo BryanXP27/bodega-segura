@@ -9,6 +9,10 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# NEXT_PUBLIC_* se inyectan en el bundle durante el build: sin esto el backend
+# queda en 'auto' y la app puede caer a local (IndexedDB) en lugar del backend elegido.
+ARG NEXT_PUBLIC_BACKEND=auto
+ENV NEXT_PUBLIC_BACKEND=${NEXT_PUBLIC_BACKEND}
 RUN npm run build
 
 FROM node:20-alpine AS runner

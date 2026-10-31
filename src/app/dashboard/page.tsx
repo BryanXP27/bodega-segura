@@ -59,7 +59,7 @@ const allFiles = await storageAdapter.getUserFiles(user.id);
       if (!publicKeyJwk) throw new Error('Clave pública no encontrada');
       const publicKey = await importPublicKeyJwk(publicKeyJwk);
       const encryptedAesKey = await encryptAesKeyWithRsa(aesKeyRaw, publicKey);
-      const storageName = `${user.id}/${file.name}_${Date.now()}`;
+      const storageName = `${user.id}/${file.name.replace(/[^A-Za-z0-9._\-]/g, '_')}_${Date.now()}`;
       await storageAdapter.storeFile(storageName, encryptedData);
       const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const metadata = { id: fileId, userId: user.id, originalName: file.name, storageName, encryptedAesKey, iv, hmac, originalSize: file.size, createdAt: new Date().toISOString(), version: '1.0' };

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { AuthState, FileMetadata } from '@/types';
-import { authAdapter, storageAdapter, databaseAdapter } from '@/lib/config';
+import { authAdapter, storageAdapter, databaseAdapter, backendName } from '@/lib/config';
 import { generateRsaKeyPair, exportPublicKeyJwk, encryptPrivateKeyWithPassword, importPublicKeyJwk, decryptAesKeyWithRsa, decryptPrivateKeyWithPassword, encryptAesKeyWithRsa } from '@/lib/crypto/rsa';
 import { generateAesKey, exportAesKey, encryptFileWithAes, decryptFileWithAes, importAesKey } from '@/lib/crypto/aes';
 import { deriveHmacKey, calculateHmac, verifyHmac } from '@/lib/crypto/hmac';
@@ -76,13 +76,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       const publicKeyJwk = await exportPublicKeyJwk(keyPair.publicKey);
       // El perfil debe existir ANTES: encrypted_private_keys.userId referencia
       // a profiles(id) y sin esta fila el INSERT falla con violación de FK.
-      await databaseAdapter.createUser({
-        id: userId,
-        email,
-        publicKey: null,
-        publicKeyJwk,
-        createdAt: new Date().toISOString(),
-      });
+      // En local/google/azure el perfil ya se creó en su flujo correspondiente
+      // (auth local -> IndexedDB; google/azure -> /api/auth/register en el server),
+      // por lo que solo supabase persiste el perfil desde el cliente.
+      if (backendName === 'supabase') {
+        await databaseAdapter.createUser({
+          id: userId,
+          email,
+          publicKey: null,
+          publicKeyJwk,
+          createdAt: new Date().toISOString(),
+        });
+      }
       await databaseAdapter.updateUserPublicKey(userId, publicKeyJwk);
       const { encryptedData, iv, salt } = await encryptPrivateKeyWithPassword(keyPair.privateKey, password);
       await databaseAdapter.updateUserEncryptedKey(userId, { ciphertext: encryptedData, iv, salt, iterations: 310000, algorithm: 'AES-GCM', keyLength: 256 });
@@ -102,7 +107,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       const { userId, sessionId } = await authAdapter.login(email, password);
       let user = await databaseAdapter.getUserById(userId);
       let repaired = false;
-      if (!user) {
+      if (!user && backendName === 'supabase') {
+        // Solo en supabase puede faltar el perfil (Auth ya creó el user).
         await databaseAdapter.createUser({
           id: userId,
           email,
@@ -174,7 +180,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const publicKey = await importPublicKeyJwk(publicKeyJwk);
       const encryptedAesKey = await encryptAesKeyWithRsa(aesKeyRaw, publicKey);
       // 6. Guardar en Storage únicamente los bytes cifrados, no los bytes originales.
-      const storageName = `${user.id}/${file.name}_${Date.now()}`;
+      const storageName = `${user.id}/${file.name.replace(/[^A-Za-z0-9._\-]/g, '_')}_${Date.now()}`;
       await storageAdapter.storeFile(storageName, encryptedData);
       // 7. Guardar metadatos para localizar/verificar/descifrar: nombre, IV, HMAC
       //    y clave AES envuelta. Ninguno revela por sí solo el contenido del archivo.
