@@ -24,6 +24,18 @@ export function Header() {
           </span>
         </Link>
         <div className="flex items-center gap-2 sm:gap-3">
+          <Link href="/pki">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`border border-cyan-400/30 text-cyan-300 hover:bg-cyan-400/10 ${
+                pathname === '/pki' ? 'bg-cyan-400/15 text-white' : ''
+              }`}
+            >
+              <span className="hidden sm:inline">🛡️ Proyecto 3 (PKI Cloud)</span>
+              <span className="sm:hidden">PKI</span>
+            </Button>
+          </Link>
           {isAuthenticated ? (
             <>
               <div className="hidden md:flex items-center gap-2 glass rounded-full px-4 py-2 text-sm text-gray-300">
