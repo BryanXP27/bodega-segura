@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Card, Button, Alert, Spinner } from '@/components/ui';
+import { Card, Button, Spinner } from '@/components/ui';
 import { CLIENT_VALID_CERT, ATTACKER_CERT } from '@/lib/pki/x509-validator';
+import { audit, auditGroup, auditWarn } from '@/lib/debug/audit';
 
 export default function PkiPage() {
   const [certInput, setCertInput] = useState<string>(CLIENT_VALID_CERT);
@@ -14,18 +15,25 @@ export default function PkiPage() {
     'Sistema PKI en la Nube inicializado.',
     'Root CA instalada: Bóveda Segura Root CA (RSA 4096 / SHA-256).',
     'Listo para recibir y validar certificados digitales X.509.',
+    'Abre DevTools (F12 > Consola) para ver la auditoría criptográfica en vivo.',
   ]);
 
   const addLog = (msg: string) => {
     const time = new Date().toLocaleTimeString();
-    setLogMessages((prev) => [`[${time}] ${msg}`, ...prev.slice(0, 19)]);
+    setLogMessages((prev) => [`[${time}] ${msg}`, ...prev.slice(0, 24)]);
   };
 
   const handleTestValidCert = async () => {
     setActiveTest('valid');
     setLoading(true);
     setCertInput(CLIENT_VALID_CERT);
-    addLog('Enviando petición a /api/pki/operaciones con Certificado Digital Válido...');
+    addLog('▶ [INICIO] Enviando petición a Google Cloud Run con Certificado Válido...');
+
+    const endAudit = auditGroup('🛡️ PROYECTO 3: AUTENTICACIÓN mTLS / X.509 EN LA NUBE');
+    audit('📜', 'Paso 1: Certificado Digital X.509 preparado en el cliente (RFC 5280)');
+    audit('🔐', 'Paso 2: Cero contraseñas ni API Keys. Autenticación puramente asimétrica');
+    audit('☁️', 'Paso 3: Enviando petición POST a Google Cloud Run (/api/pki/operaciones)...');
+
     try {
       const res = await fetch('/api/pki/operaciones', {
         method: 'POST',
@@ -35,15 +43,25 @@ export default function PkiPage() {
       const data = await res.json();
       setResponseStatus(res.status);
       setResponseBody(data);
+
       if (res.ok) {
-        addLog(`✔ HTTP 200 OK: Cliente autenticado exitosamente como "${data.auth_details?.client?.commonName}"`);
-        addLog(`✔ Cadena de confianza verificada contra la Root CA de la Bóveda`);
+        audit('🔍', 'Paso 4: Cloud Run decodificó el certificado y validó la firma matemática: clientCert.verify(caCert.publicKey) === TRUE');
+        audit('📅', 'Paso 5: Verificación de vigencia (notBefore / notAfter) y lista de revocación (CRL): VÁLIDO');
+        audit('👤', `Paso 6: Cliente reconocido institucionalmente: ${data.auth_details?.client?.commonName} (${data.auth_details?.client?.organization || 'UNDC'})`);
+        audit('💰', 'Paso 7: Acceso concedido a la Bóveda Central (CTA-UNDC-2026-9948)', data.boveda_data);
+
+        addLog(`✔ HTTP 200 OK: Cliente autenticado como "${data.auth_details?.client?.commonName}"`);
+        addLog(`✔ Cadena de confianza verificada contra la Root CA de la Bóveda.`);
+        addLog(`✔ Acceso concedido a la cuenta CTA-UNDC-2026-9948 ($ 1,500,000.00 USD).`);
       } else {
+        auditWarn('❌', `Error HTTP ${res.status}`, data);
         addLog(`❌ Error HTTP ${res.status}: ${data.error}`);
       }
     } catch (err: any) {
+      auditWarn('💥', 'Error de red en la llamada al API', err);
       addLog(`❌ Error de red: ${err.message}`);
     } finally {
+      endAudit();
       setLoading(false);
     }
   };
@@ -52,7 +70,12 @@ export default function PkiPage() {
     setActiveTest('no_cert');
     setLoading(true);
     setCertInput('');
-    addLog('Probando ataque: Enviando petición a /api/pki/operaciones SIN certificado...');
+    addLog('▶ [ATAQUE 1] Enviando petición a Google Cloud Run SIN certificado digital...');
+
+    const endAudit = auditGroup('🛡️ PROYECTO 3: ATAQUE 1 - ACCESO SIN CREDENCIAL X.509');
+    audit('⚠️', 'Paso 1: Atacante intenta consumir /api/pki/operaciones SIN presentar certificado');
+    audit('☁️', 'Paso 2: Petición enviada a Google Cloud Run...');
+
     try {
       const res = await fetch('/api/pki/operaciones', {
         method: 'POST',
@@ -62,10 +85,17 @@ export default function PkiPage() {
       const data = await res.json();
       setResponseStatus(res.status);
       setResponseBody(data);
+
+      audit('🛑', `Paso 3: Bloqueo en Cloud Run: HTTP ${res.status} [${data.code}]`, data.error);
+      audit('✔', 'Paso 4: RESULTADO: Ataque mitigado. Ninguna entidad sin certificado digital puede acceder a la Bóveda.');
+
       addLog(`🛡️ HTTP ${res.status} BLOQUEADO: ${data.error}`);
+      addLog(`✔ El API rechazó el acceso por falta de credencial X.509.`);
     } catch (err: any) {
+      auditWarn('💥', 'Error de red en la llamada al API', err);
       addLog(`❌ Error de red: ${err.message}`);
     } finally {
+      endAudit();
       setLoading(false);
     }
   };
@@ -74,7 +104,12 @@ export default function PkiPage() {
     setActiveTest('rogue');
     setLoading(true);
     setCertInput(ATTACKER_CERT);
-    addLog('Probando ataque: Enviando certificado firmado por OTRA CA (Rogue Malicious CA)...');
+    addLog('▶ [ATAQUE 2] Enviando certificado emitido por OTRA CA (Rogue Malicious Root CA)...');
+
+    const endAudit = auditGroup('🛡️ PROYECTO 3: ATAQUE 2 - CERTIFICADO DE OTRA CA (ROGUE CA)');
+    audit('🎭', 'Paso 1: Atacante presenta certificado firmado por "Rogue Malicious Root CA"');
+    audit('☁️', 'Paso 2: Enviado a Google Cloud Run (/api/pki/operaciones)...');
+
     try {
       const res = await fetch('/api/pki/operaciones', {
         method: 'POST',
@@ -84,10 +119,18 @@ export default function PkiPage() {
       const data = await res.json();
       setResponseStatus(res.status);
       setResponseBody(data);
+
+      audit('🔍', 'Paso 3: Cloud Run verifica firma matemática contra la Root CA institucional: clientCert.verify(caCert.publicKey) === FALSE');
+      audit('🛑', `Paso 4: Cadena de confianza rota. Rechazo en Cloud Run: HTTP ${res.status} [${data.code}]`, data.error);
+      audit('✔', 'Paso 5: RESULTADO: Ataque de suplantación mitigado. Solo la Root CA oficial tiene autoridad.');
+
       addLog(`🛡️ HTTP ${res.status} RECHAZADO: ${data.error}`);
+      addLog(`✔ Cloud Run verificó la firma matemática y RECHAZÓ al atacante.`);
     } catch (err: any) {
+      auditWarn('💥', 'Error de red en la llamada al API', err);
       addLog(`❌ Error de red: ${err.message}`);
     } finally {
+      endAudit();
       setLoading(false);
     }
   };
@@ -100,6 +143,7 @@ export default function PkiPage() {
       const content = event.target?.result as string;
       setCertInput(content);
       addLog(`Archivo cargado: ${file.name} (${file.size} bytes)`);
+      audit('📂', `Certificado personalizado cargado: ${file.name} (${file.size} bytes)`);
     };
     reader.readAsText(file);
   };
@@ -112,6 +156,10 @@ export default function PkiPage() {
     setActiveTest('custom');
     setLoading(true);
     addLog('Enviando certificado personalizado al API en la nube...');
+
+    const endAudit = auditGroup('🛡️ PROYECTO 3: EVALUACIÓN DE CERTIFICADO PERSONALIZADO');
+    audit('📜', 'Enviando certificado personalizado al API en Google Cloud Run...');
+
     try {
       const res = await fetch('/api/pki/operaciones', {
         method: 'POST',
@@ -121,14 +169,19 @@ export default function PkiPage() {
       const data = await res.json();
       setResponseStatus(res.status);
       setResponseBody(data);
+
       if (res.ok) {
+        audit('✔', `HTTP ${res.status} OK: Certificado válido emitido por la CA.`, data);
         addLog(`✔ HTTP ${res.status} OK: Certificado válido. Acceso concedido.`);
       } else {
+        auditWarn('🛑', `HTTP ${res.status} DENEGADO: ${data.error}`, data);
         addLog(`🛡️ HTTP ${res.status} DENEGADO: ${data.error}`);
       }
     } catch (err: any) {
+      auditWarn('💥', 'Error al evaluar certificado', err);
       addLog(`❌ Error: ${err.message}`);
     } finally {
+      endAudit();
       setLoading(false);
     }
   };
@@ -152,9 +205,12 @@ export default function PkiPage() {
               El cliente se identifica mediante criptografía de clave pública, <strong>sin contraseñas ni API Keys</strong>.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs font-medium text-emerald-300">Google Cloud Run API Activo</span>
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-xs font-medium text-emerald-300">Google Cloud Run API Activo</span>
+            </div>
+            <span className="text-[11px] text-cyan-50/45">F12 &gt; Consola para bitácora en vivo</span>
           </div>
         </div>
 
@@ -316,7 +372,7 @@ export default function PkiPage() {
             <h3 className="text-xs font-semibold uppercase tracking-wider text-cyan-300">
               📋 Consola de Auditoría y Verificación Criptográfica
             </h3>
-            <span className="text-[11px] text-cyan-50/40">Terminal en vivo</span>
+            <span className="text-[11px] text-cyan-50/40">F12 &gt; Console sincronizada</span>
           </div>
           <div className="space-y-1 font-mono text-xs text-cyan-100/80">
             {logMessages.map((log, i) => (

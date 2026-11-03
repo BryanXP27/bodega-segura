@@ -4,11 +4,20 @@ import { validateClientCertificate } from '@/lib/pki/x509-validator';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+function ts(): string {
+  return new Date().toISOString().slice(11, 23);
+}
+
 /**
  * Endpoint Protegido con Certificado Digital X.509 (Proyecto 3 - UNDC 2026)
  * Valida el certificado de cliente sin requerir contraseñas ni API Keys.
  */
 export async function POST(request: NextRequest) {
+  const timestamp = ts();
+  console.log(`\n============================================================`);
+  console.log(`[Bóveda Cloud ${timestamp}] 🛡️ [PROYECTO 3] PETICIÓN AL API PROTEGIDO /api/pki/operaciones`);
+  console.log(`============================================================`);
+
   try {
     // 1. Extraer certificado desde headers (modo proxy / Cloud Run / Azure Functions)
     let certHeader =
@@ -35,6 +44,8 @@ export async function POST(request: NextRequest) {
 
     // A. Caso 1: No se envió ningún certificado
     if (!certToValidate) {
+      console.warn(`[Bóveda Cloud ${timestamp}] ❌ ATAQUE DETECTADO: Petición recibida SIN certificado digital.`);
+      console.warn(`[Bóveda Cloud ${timestamp}] 🛑 RESULTADO: HTTP 401 Unauthorized (MISSING_CLIENT_CERTIFICATE).`);
       return NextResponse.json(
         {
           success: false,
@@ -49,10 +60,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log(`[Bóveda Cloud ${timestamp}] 📜 Certificado X.509 recibido. Decodificando estructura...`);
+
     // B. Validación criptográfica de la firma, vigencia y revocación
     const result = validateClientCertificate(certToValidate);
 
     if (!result.valid) {
+      console.warn(`[Bóveda Cloud ${timestamp}] ❌ VALIDACIÓN FALLIDA: ${result.error}`);
+      console.warn(`[Bóveda Cloud ${timestamp}] 🛑 RESULTADO: HTTP 403 Forbidden [${result.code}].`);
       return NextResponse.json(
         {
           success: false,
@@ -65,6 +80,11 @@ export async function POST(request: NextRequest) {
     }
 
     // C. Certificado Válido: Entregar datos protegidos
+    console.log(`[Bóveda Cloud ${timestamp}] ✔ FIRMA VERIFICADA matemáticamente contra la Root CA de la Bóveda.`);
+    console.log(`[Bóveda Cloud ${timestamp}] ✔ FECHAS DE VIGENCIA Y CRL: Certificado válido y no revocado.`);
+    console.log(`[Bóveda Cloud ${timestamp}] 👤 CLIENTE AUTENTICADO: CN=${result.client?.commonName} | Org=${result.client?.organization}`);
+    console.log(`[Bóveda Cloud ${timestamp}] 💰 AUTORIZANDO ACCESO A LA BÓVEDA CENTRAL (CTA-UNDC-2026-9948).`);
+
     return NextResponse.json({
       success: true,
       message: `Autenticación PKI Exitosa. Bienvenido, ${result.client?.commonName}.`,
@@ -86,6 +106,7 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString(),
     });
   } catch (err: any) {
+    console.error(`[Bóveda Cloud ${timestamp}] 💥 Error interno en validación:`, err);
     return NextResponse.json(
       {
         success: false,
@@ -97,6 +118,5 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  // Permitir GET si el certificado viene en header
   return POST(request);
 }
