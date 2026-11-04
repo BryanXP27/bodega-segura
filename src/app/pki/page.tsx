@@ -2,19 +2,27 @@
 
 import React, { useState } from 'react';
 import { Card, Button, Spinner } from '@/components/ui';
-import { CLIENT_VALID_CERT, ATTACKER_CERT } from '@/lib/pki/x509-validator';
 import { audit, auditGroup, auditWarn } from '@/lib/debug/audit';
 
+interface DemoCerts {
+  clientCertificate: string;
+  attackerCertificate: string;
+}
+
 export default function PkiPage() {
-  const [certInput, setCertInput] = useState<string>(CLIENT_VALID_CERT);
+  const [certInput, setCertInput] = useState<string>('');
+  const [challengeToken, setChallengeToken] = useState<string>('');
+  const [signature, setSignature] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [activeTest, setActiveTest] = useState<string | null>(null);
   const [responseStatus, setResponseStatus] = useState<number | null>(null);
   const [responseBody, setResponseBody] = useState<any>(null);
+  const [challengeInfo, setChallengeInfo] = useState<any>(null);
   const [logMessages, setLogMessages] = useState<string[]>([
     'Sistema PKI en la Nube inicializado.',
     'Root CA instalada: Bóveda Segura Root CA (RSA 4096 / SHA-256).',
-    'Listo para recibir y validar certificados digitales X.509.',
+    'Autenticación exigida: certificado X.509 + prueba de posesión (reto-firma).',
+    'La llave privada del cliente NUNCA se publica: vive en certs/private/ de tu equipo.',
     'Abre DevTools (F12 > Consola) para ver la auditoría criptográfica en vivo.',
   ]);
 
@@ -23,40 +31,70 @@ export default function PkiPage() {
     setLogMessages((prev) => [`[${time}] ${msg}`, ...prev.slice(0, 24)]);
   };
 
-  const handleTestValidCert = async () => {
-    setActiveTest('valid');
-    setLoading(true);
-    setCertInput(CLIENT_VALID_CERT);
-    addLog('▶ [INICIO] Enviando petición a Google Cloud Run con Certificado Válido...');
+  const loadDemoCerts = async (): Promise<DemoCerts> => {
+    const res = await fetch('/api/pki/demo-certs', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`No se pudieron cargar los certificados de demo (HTTP ${res.status})`);
+    return (await res.json()) as DemoCerts;
+  };
 
-    const endAudit = auditGroup('🛡️ PROYECTO 3: AUTENTICACIÓN mTLS / X.509 EN LA NUBE');
-    audit('📜', 'Paso 1: Certificado Digital X.509 preparado en el cliente (RFC 5280)');
-    audit('🔐', 'Paso 2: Cero contraseñas ni API Keys. Autenticación puramente asimétrica');
-    audit('☁️', 'Paso 3: Enviando petición POST a Google Cloud Run (/api/pki/operaciones)...');
+  const postOperaciones = async (payload: Record<string, unknown>) => {
+    const res = await fetch('/api/pki/operaciones', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    setResponseStatus(res.status);
+    setResponseBody(data);
+    return { res, data };
+  };
+
+  const handleRequestChallenge = async () => {
+    setActiveTest('challenge');
+    setLoading(true);
+    addLog('▶ [RETO] Solicitando nonce de un solo uso a /api/pki/challenge...');
+
+    const endAudit = auditGroup('🛡️ PROYECTO 3: EMISIÓN DEL RETO CRIPTOGRÁFICO');
+    audit('☁️', 'Paso 1: El cliente solicita un reto al servidor (GET /api/pki/challenge)');
+    audit('🎲', 'Paso 2: El servidor genera un nonce aleatorio de 256 bits + token HMAC con TTL de 120 s');
+    audit('🔏', 'Paso 3: El cliente debe firmar ese nonce con su llave privada RSA (SHA-256): la llave no viaja');
 
     try {
-      const res = await fetch('/api/pki/operaciones', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientCertificate: CLIENT_VALID_CERT }),
-      });
+      const res = await fetch('/api/pki/challenge', { cache: 'no-store' });
       const data = await res.json();
-      setResponseStatus(res.status);
-      setResponseBody(data);
+      setChallengeInfo(data);
+      setChallengeToken(data?.challenge?.token || '');
+      addLog(`✔ Reto emitido. Expira: ${data?.challenge?.expiresAt} (un solo uso).`);
+      addLog('↳ Abre el aplicativo de escritorio Python para firmarlo con client.key.');
+      audit('✔', 'Reto listo. Sin la llave privada, la firma es computacionalmente inviable.');
+    } catch (err: any) {
+      auditWarn('💥', 'Error al solicitar el reto', err);
+      addLog(`❌ Error: ${err.message}`);
+    } finally {
+      endAudit();
+      setLoading(false);
+    }
+  };
 
-      if (res.ok) {
-        audit('🔍', 'Paso 4: Cloud Run decodificó el certificado y validó la firma matemática: clientCert.verify(caCert.publicKey) === TRUE');
-        audit('📅', 'Paso 5: Verificación de vigencia (notBefore / notAfter) y lista de revocación (CRL): VÁLIDO');
-        audit('👤', `Paso 6: Cliente reconocido institucionalmente: ${data.auth_details?.client?.commonName} (${data.auth_details?.client?.organization || 'UNDC'})`);
-        audit('💰', 'Paso 7: Acceso concedido a la Bóveda Central (CTA-UNDC-2026-9948)', data.boveda_data);
+  const handleTestCertWithoutProof = async () => {
+    setActiveTest('no_proof');
+    setLoading(true);
+    addLog('▶ [DEMO SEGURIDAD] Presentando el certificado válido SIN firma del reto...');
 
-        addLog(`✔ HTTP 200 OK: Cliente autenticado como "${data.auth_details?.client?.commonName}"`);
-        addLog(`✔ Cadena de confianza verificada contra la Root CA de la Bóveda.`);
-        addLog(`✔ Acceso concedido a la cuenta CTA-UNDC-2026-9948 ($ 1,500,000.00 USD).`);
-      } else {
-        auditWarn('❌', `Error HTTP ${res.status}`, data);
-        addLog(`❌ Error HTTP ${res.status}: ${data.error}`);
-      }
+    const endAudit = auditGroup('🛡️ PROYECTO 3: CERTIFICADO PÚBLICO SIN PRUEBA DE POSESIÓN');
+    audit('📜', 'Paso 1: Se obtiene el certificado público client.crt (no es un secreto)');
+    audit('🚫', 'Paso 2: NO se envía firma del reto (equivale a copiar el PEM desde GitHub)');
+    audit('☁️', 'Paso 3: Enviando a /api/pki/operaciones...');
+
+    try {
+      const certs = await loadDemoCerts();
+      setCertInput(certs.clientCertificate);
+      const { res, data } = await postOperaciones({ clientCertificate: certs.clientCertificate });
+
+      audit('🛑', `Paso 4: Rechazo en Cloud Run: HTTP ${res.status} [${data.code}]`, data.error);
+      audit('✔', 'Paso 5: El certificado por sí solo ya NO autentica. Se exige la llave privada.');
+      addLog(`🛡️ HTTP ${res.status} BLOQUEADO: ${data.code}`);
+      addLog('✔ Copiar el certificado público ya no permite suplantar al cliente.');
     } catch (err: any) {
       auditWarn('💥', 'Error de red en la llamada al API', err);
       addLog(`❌ Error de red: ${err.message}`);
@@ -70,6 +108,8 @@ export default function PkiPage() {
     setActiveTest('no_cert');
     setLoading(true);
     setCertInput('');
+    setSignature('');
+    setChallengeToken('');
     addLog('▶ [ATAQUE 1] Enviando petición a Google Cloud Run SIN certificado digital...');
 
     const endAudit = auditGroup('🛡️ PROYECTO 3: ATAQUE 1 - ACCESO SIN CREDENCIAL X.509');
@@ -77,20 +117,10 @@ export default function PkiPage() {
     audit('☁️', 'Paso 2: Petición enviada a Google Cloud Run...');
 
     try {
-      const res = await fetch('/api/pki/operaciones', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      setResponseStatus(res.status);
-      setResponseBody(data);
-
+      const { res, data } = await postOperaciones({});
       audit('🛑', `Paso 3: Bloqueo en Cloud Run: HTTP ${res.status} [${data.code}]`, data.error);
       audit('✔', 'Paso 4: RESULTADO: Ataque mitigado. Ninguna entidad sin certificado digital puede acceder a la Bóveda.');
-
       addLog(`🛡️ HTTP ${res.status} BLOQUEADO: ${data.error}`);
-      addLog(`✔ El API rechazó el acceso por falta de credencial X.509.`);
     } catch (err: any) {
       auditWarn('💥', 'Error de red en la llamada al API', err);
       addLog(`❌ Error de red: ${err.message}`);
@@ -103,7 +133,6 @@ export default function PkiPage() {
   const handleTestRogueCert = async () => {
     setActiveTest('rogue');
     setLoading(true);
-    setCertInput(ATTACKER_CERT);
     addLog('▶ [ATAQUE 2] Enviando certificado emitido por OTRA CA (Rogue Malicious Root CA)...');
 
     const endAudit = auditGroup('🛡️ PROYECTO 3: ATAQUE 2 - CERTIFICADO DE OTRA CA (ROGUE CA)');
@@ -111,21 +140,16 @@ export default function PkiPage() {
     audit('☁️', 'Paso 2: Enviado a Google Cloud Run (/api/pki/operaciones)...');
 
     try {
-      const res = await fetch('/api/pki/operaciones', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientCertificate: ATTACKER_CERT }),
+      const certs = await loadDemoCerts();
+      setCertInput(certs.attackerCertificate);
+      const { res, data } = await postOperaciones({
+        clientCertificate: certs.attackerCertificate,
       });
-      const data = await res.json();
-      setResponseStatus(res.status);
-      setResponseBody(data);
 
-      audit('🔍', 'Paso 3: Cloud Run verifica firma matemática contra la Root CA institucional: clientCert.verify(caCert.publicKey) === FALSE');
+      audit('🔍', 'Paso 3: Cloud Run verifica la firma contra la Root CA institucional: inválida');
       audit('🛑', `Paso 4: Cadena de confianza rota. Rechazo en Cloud Run: HTTP ${res.status} [${data.code}]`, data.error);
       audit('✔', 'Paso 5: RESULTADO: Ataque de suplantación mitigado. Solo la Root CA oficial tiene autoridad.');
-
       addLog(`🛡️ HTTP ${res.status} RECHAZADO: ${data.error}`);
-      addLog(`✔ Cloud Run verificó la firma matemática y RECHAZÓ al atacante.`);
     } catch (err: any) {
       auditWarn('💥', 'Error de red en la llamada al API', err);
       addLog(`❌ Error de red: ${err.message}`);
@@ -155,26 +179,36 @@ export default function PkiPage() {
     }
     setActiveTest('custom');
     setLoading(true);
-    addLog('Enviando certificado personalizado al API en la nube...');
+
+    const hasProof = Boolean(challengeToken.trim() && signature.trim());
+    addLog(
+      hasProof
+        ? 'Enviando certificado + token de reto + firma RSA-SHA256 al API...'
+        : 'Enviando certificado SIN firma de reto (se espera 403)...'
+    );
 
     const endAudit = auditGroup('🛡️ PROYECTO 3: EVALUACIÓN DE CERTIFICADO PERSONALIZADO');
-    audit('📜', 'Enviando certificado personalizado al API en Google Cloud Run...');
+    audit('📜', 'Enviando certificado X.509 al API en Google Cloud Run...');
+    if (hasProof) {
+      audit('🔏', 'Incluyendo token de reto y firma RSA-SHA256 del nonce.');
+    } else {
+      auditWarn('🚫', 'Sin firma de reto: la prueba de posesión no puede satisfacerse.');
+    }
 
     try {
-      const res = await fetch('/api/pki/operaciones', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientCertificate: certInput }),
-      });
-      const data = await res.json();
-      setResponseStatus(res.status);
-      setResponseBody(data);
+      const payload: Record<string, unknown> = { clientCertificate: certInput };
+      if (hasProof) {
+        payload.challengeToken = challengeToken.trim();
+        payload.signature = signature.trim();
+      }
+
+      const { res, data } = await postOperaciones(payload);
 
       if (res.ok) {
-        audit('✔', `HTTP ${res.status} OK: Certificado válido emitido por la CA.`, data);
-        addLog(`✔ HTTP ${res.status} OK: Certificado válido. Acceso concedido.`);
+        audit('✔', `HTTP ${res.status} OK: certificado + prueba de posesión válidos.`, data);
+        addLog(`✔ HTTP ${res.status} OK: ${data.message}`);
       } else {
-        auditWarn('🛑', `HTTP ${res.status} DENEGADO: ${data.error}`, data);
+        auditWarn('🛑', `HTTP ${res.status} DENEGADO: ${data.code}`, data.error);
         addLog(`🛡️ HTTP ${res.status} DENEGADO: ${data.error}`);
       }
     } catch (err: any) {
@@ -201,8 +235,8 @@ export default function PkiPage() {
               PKI: API en la Nube con Certificado Digital
             </h1>
             <p className="mt-2 text-sm text-cyan-50/60 max-w-2xl">
-              Autenticación mutua (mTLS / X.509) desplegada en <strong>Google Cloud Run</strong>.
-              El cliente se identifica mediante criptografía de clave pública, <strong>sin contraseñas ni API Keys</strong>.
+              Autenticación con certificado X.509 y <strong>prueba de posesión</strong> (reto firmado con la
+              llave privada). Desplegado en <strong>Google Cloud Run</strong>, <strong>sin contraseñas ni API Keys</strong>.
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
@@ -214,29 +248,44 @@ export default function PkiPage() {
           </div>
         </div>
 
-        {/* Panel de las 3 Pruebas de la Rúbrica */}
+        {/* Aviso de modelo de seguridad */}
+        <Card className="border-cyan-400/20 bg-[#062a36]/50">
+          <div className="flex flex-col gap-2 text-xs text-cyan-50/70 sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              🔐 <strong className="text-cyan-200">Modelo Zero-Secret:</strong> el certificado es público; el acceso
+              exige firmar el nonce con la llave privada. La llave vive solo en tu equipo
+              (<code className="text-cyan-300">certs/private/client.key</code>) y nunca se envía.
+            </p>
+            <Button variant="secondary" size="sm" onClick={handleRequestChallenge} isLoading={loading && activeTest === 'challenge'}>
+              Obtener reto
+            </Button>
+          </div>
+        </Card>
+
+        {/* Panel de Pruebas de la Rúbrica */}
         <div>
           <h2 className="text-lg font-semibold text-white mb-3">
             🧪 Pruebas de Evaluación (Rúbrica de Seguridad)
           </h2>
           <div className="grid gap-4 sm:grid-cols-3">
-            {/* Prueba 1: Certificado Válido */}
+            {/* Prueba 1: Certificado público sin firma */}
             <Card className="hover:border-emerald-500/50 transition-all border-emerald-500/20 bg-[#07241f]/40">
               <div className="flex items-start gap-3">
                 <span className="text-3xl">🟢</span>
                 <div className="flex-1">
-                  <h3 className="font-semibold text-emerald-200">Certificado Válido</h3>
+                  <h3 className="font-semibold text-emerald-200">Certificado Válido sin Firma</h3>
                   <p className="mt-1 text-xs text-emerald-100/60">
-                    Firmado por la Root CA propia. Acceso concedido con datos bancarios.
+                    Presenta <code>client.crt</code> (público) sin firmar el reto. Debe rechazarse con 403:
+                    así se demuestra que copiar el certificado ya no sirve.
                   </p>
                   <Button
                     variant="primary"
                     size="sm"
                     className="mt-4 w-full !bg-emerald-600 hover:!bg-emerald-500"
-                    onClick={handleTestValidCert}
-                    isLoading={loading && activeTest === 'valid'}
+                    onClick={handleTestCertWithoutProof}
+                    isLoading={loading && activeTest === 'no_proof'}
                   >
-                    Probar Acceso Válido
+                    Probar Certificado sin Firma
                   </Button>
                 </div>
               </div>
@@ -310,9 +359,38 @@ export default function PkiPage() {
               value={certInput}
               onChange={(e) => setCertInput(e.target.value)}
               placeholder="Pega aquí el certificado X.509 (formato PEM o Base64)..."
-              rows={12}
+              rows={9}
               className="w-full rounded-xl border border-cyan-100/10 bg-[#041622] p-3 text-xs font-mono text-cyan-100 outline-none focus:border-cyan-300/50"
             />
+
+            <details className="mt-3 rounded-xl border border-cyan-100/10 bg-[#041622]/60 p-3">
+              <summary className="cursor-pointer text-xs font-semibold text-cyan-300">
+                🔏 Firma manual del reto (opcional, para demostrar acceso válido)
+              </summary>
+              <p className="mt-2 text-[11px] text-cyan-50/50">
+                Pulsa <strong>Obtener reto</strong>, guarda el <code>nonce</code> en un archivo y fírmalo con
+                OpenSSL usando tu llave privada. Luego pega el token y la firma base64 aquí.
+              </p>
+              <pre className="mt-2 overflow-x-auto rounded-lg bg-black/40 p-2 text-[10px] text-emerald-200">
+{`openssl dgst -sha256 -sign certs/private/client.key -out firma.bin nonce.txt
+openssl base64 -A -in firma.bin`}
+              </pre>
+              <textarea
+                value={challengeToken}
+                onChange={(e) => setChallengeToken(e.target.value)}
+                placeholder="challengeToken (se rellena al pulsar Obtener reto)"
+                rows={2}
+                className="mt-2 w-full rounded-lg border border-cyan-100/10 bg-[#041622] p-2 text-[10px] font-mono text-cyan-100 outline-none focus:border-cyan-300/50"
+              />
+              <textarea
+                value={signature}
+                onChange={(e) => setSignature(e.target.value)}
+                placeholder="signature (base64 de la firma RSA-SHA256 del nonce)"
+                rows={2}
+                className="mt-2 w-full rounded-lg border border-cyan-100/10 bg-[#041622] p-2 text-[10px] font-mono text-cyan-100 outline-none focus:border-cyan-300/50"
+              />
+            </details>
+
             <div className="mt-3 flex justify-between items-center">
               <span className="text-[11px] text-cyan-50/40">
                 Formato estándar RFC 5280 (PEM / Base64)
@@ -351,11 +429,15 @@ export default function PkiPage() {
               {loading ? (
                 <div className="flex h-full items-center justify-center gap-2 text-cyan-300">
                   <Spinner />
-                  <span>Validando firma criptográfica en Google Cloud...</span>
+                  <span>Validando certificado y prueba de posesión en Google Cloud...</span>
                 </div>
               ) : responseBody ? (
                 <pre className="text-cyan-100/90 whitespace-pre-wrap">
                   {JSON.stringify(responseBody, null, 2)}
+                </pre>
+              ) : challengeInfo ? (
+                <pre className="text-cyan-100/90 whitespace-pre-wrap">
+                  {JSON.stringify(challengeInfo, null, 2)}
                 </pre>
               ) : (
                 <div className="flex h-full items-center justify-center text-cyan-50/40 text-center">

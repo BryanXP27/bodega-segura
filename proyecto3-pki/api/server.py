@@ -1,13 +1,17 @@
 """
 Servidor API Seguro con Autenticacion Mutua (mTLS) - Proyecto 3 (UNDC 2026)
 --------------------------------------------------------------------------
-Plataforma: Google Cloud Run / Contenedor Docker / Servidor HTTPS Local
+Plataforma: Servidor HTTPS Local / VM Compute Engine
 Valida:
 1. TLS 1.2 / TLS 1.3 con requerimiento estricto de Certificado de Cliente.
 2. Firma de la Autoridad Certificadora (Root CA propia de la Boveda).
 3. Vigencia (fechas notBefore / notAfter).
 4. Sujeto (Common Name) y autorizaciones por rol.
 5. Lista de Revocacion de Certificados (CRL / Serial Blacklist).
+
+Nota: Cloud Run termina TLS en el borde y no permite mTLS con CA propia.
+Para mTLS real se usa este servidor en una VM; en Cloud Run la app Next.js
+valida X.509 + prueba de posesion (reto firmado).
 """
 
 import os
@@ -19,14 +23,17 @@ from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CERTS_DIR = os.path.join(os.path.dirname(BASE_DIR), "pki", "certs")
+PRIVATE_DIR = os.path.join(CERTS_DIR, "private")
 
 SERVER_PORT = int(os.environ.get("PORT", 8443))
 SERVER_HOST = "0.0.0.0"
 
-# Certificados requeridos
+# Certificados publicos (versionables)
 CA_CRT = os.path.join(CERTS_DIR, "ca.crt")
 SERVER_CRT = os.path.join(CERTS_DIR, "server.crt")
-SERVER_KEY = os.path.join(CERTS_DIR, "server.key")
+# Llave privada del servidor: NUNCA se versiona (certs/private esta en .gitignore).
+# En produccion puede montarse desde un secreto: SERVER_KEY=/run/secrets/server.key
+SERVER_KEY = os.environ.get("SERVER_KEY", os.path.join(PRIVATE_DIR, "server.key"))
 
 # Lista de numeros de serie revocados (Simulacion de CRL)
 REVOKED_SERIALS = [
@@ -156,6 +163,9 @@ class MTLSRequestHandler(BaseHTTPRequestHandler):
 def run_server():
     if not os.path.exists(SERVER_CRT) or not os.path.exists(SERVER_KEY) or not os.path.exists(CA_CRT):
         print(f"[ERROR] No se encontraron los certificados en {CERTS_DIR}")
+        print(f"  CA publica:        {CA_CRT}")
+        print(f"  Certificado server:{SERVER_CRT}")
+        print(f"  Llave server:      {SERVER_KEY} (privada, git-ignored)")
         print("Ejecuta primero: python pki/generar_pki.py")
         sys.exit(1)
 
@@ -165,6 +175,7 @@ def run_server():
     print(f"Puerto: {SERVER_PORT}")
     print(f"CA Raiz: {CA_CRT}")
     print(f"Certificado Servidor: {SERVER_CRT}")
+    print(f"Llave privada Servidor: {SERVER_KEY}")
     print("Modo de Autenticacion: TLS MUTUO REQUERIDO (CERT_REQUIRED)")
     print("="*60)
 

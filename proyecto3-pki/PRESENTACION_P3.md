@@ -1,13 +1,13 @@
-# PROYECTO 3 — PKI: API en la Nube con Certificado Digital Digital (mTLS)
+# PROYECTO 3 — PKI: API en la Nube con Certificado Digital (mTLS)
 > Universidad Nacional de Cañete — UNDC 2026 · Seguridad y Criptografía
-> Plataforma: Google Cloud Run / Servidor HTTPS mTLS
+> Plataforma: Google Cloud Run (reto-firma) + servidor local/VM con mTLS real
 > Guión de Exposición Slide por Slide (Tiempo sugerido: 10–12 minutos)
 
 ---
 
 ## Slide 1 — Portada
 - **Título:** Proyecto 3 — PKI: API en la Nube con Certificado Digital
-- **Subtítulo:** Autenticación Mutua TLS (mTLS) para Aplicativo de Escritorio sin Contraseñas ni API Keys
+- **Subtítulo:** Autenticación con Certificado Digital para Aplicativo de Escritorio, sin Contraseñas ni API Keys
 - **Plataforma:** Google Cloud Run + OpenSSL Mini-PKI + Aplicativo Python X.509
 - **Integrantes y Docente:** UNDC 2026
 
@@ -26,9 +26,9 @@
 |---|---|---|
 | **Autoridad Certificadora (CA)** | OpenSSL (RSA 4096 + SHA-256) | Crea la llave privada y el certificado raíz de la CA; con ellos firma los certificados que emite |
 | **Certificado de Cliente** | CSR + Certificado X.509 (.pfx / .crt) | El aplicativo genera su par de llaves y pide su certificado; la privada nunca sale de su equipo |
-| **Autenticación Mutua** | TLS 1.3 / 1.2 con Certificado de Cliente | El cliente prueba la posesión de la llave privada firmando datos únicos; nada secreto viaja |
+| **Autenticación** | mTLS real (local/VM) + reto-firma (Cloud Run) | El cliente prueba la posesión de la llave privada firmando datos únicos; nada secreto viaja |
 | **Aplicativo Cliente** | App de Escritorio Python (GUI Tkinter) | Presenta el certificado digital y firma el reto para consumir el API sin contraseñas |
-| **API en la Nube** | Google Cloud Run / Servidor HTTPS mTLS | Valida que la CA propia firmó el certificado, verifica vigencia y lista de revocación (CRL) |
+| **API en la Nube** | Google Cloud Run + validador X.509 | Valida la CA propia, vigencia, revocación y la firma del reto con la llave pública |
 
 ---
 
@@ -66,53 +66,68 @@
 
 ---
 
-## Slide 6 — Flujo 2: Consumo del API mediante Handshake mTLS
+## Slide 6 — Flujo 2: Consumo del API (nube y local)
+
+**A) Cloud Run — reto + firma (implementación desplegada)**
 ```
-Cliente                                               Servidor API (mTLS)
-   │ ─── 1. ClientHello (Soporte TLS 1.3 / Ciphers) ──────► │
-   │ ◄── 2. ServerHello + Certificado Servidor + Reto ───── │
-   │     (Cliente valida el certificado del servidor)       │
-   │ ◄── 3. CertificateRequest (Servidor pide cert cliente) │
-   │ ─── 4. Certificate (Cliente envía client.crt) ───────► │
-   │ ─── 5. CertificateVerify (Firma del reto con client.key) │
-   │ ─── 6. Finished (Canal seguro establecido) ──────────► │
-   │                                                        │
-   │ ─── 7. GET /api/operaciones (Sin contraseñas) ───────► │
-   │ ◄── 8. 200 OK + Datos Autorizados (JSON) ───────────── │
+App de escritorio                                  API Next.js en Cloud Run
+   │ ─── 1. GET /api/pki/challenge ───────────────────────► │
+   │ ◄── 2. nonce + token HMAC (TTL 120 s, un solo uso) ─── │
+   │     (firma el nonce localmente con client.key)         │
+   │ ─── 3. POST /api/pki/operaciones ────────────────────► │
+   │        { clientCertificate, challengeToken, signature } │
+   │ ◄── 4. 200 OK + Datos Autorizados (JSON) ───────────── │
 ```
-- **Principio Zero-Secret:** En ningún momento viajan contraseñas ni la llave privada; solo viaja la firma digital del reto.
+
+**B) Servidor local / VM — mTLS real en el handshake**
+```
+   │ ─── 1. ClientHello (TLS 1.2 / 1.3) ──────────────────► │
+   │ ◄── 2. ServerHello + Certificado Servidor ──────────── │
+   │ ◄── 3. CertificateRequest (servidor pide cert cliente) │
+   │ ─── 4. Certificate (client.crt) ─────────────────────► │
+   │ ─── 5. CertificateVerify (firma con client.key) ─────► │
+   │ ─── 6. Finished (canal seguro) ──────────────────────► │
+   │ ─── 7. GET /api/operaciones (sin contraseñas) ───────► │
+```
+- **Principio Zero-Secret:** nunca viajan contraseñas ni la llave privada; solo la firma digital del reto.
+- **Cloud Run** no permite mTLS con CA propia (termina TLS en el borde), por eso ahí se aplica el mismo principio a nivel de aplicación: reto firmado + validación X.509.
 
 ---
 
 ## Slide 7 — Flujo 3: Validación en el API en la Nube
-1. **Terminación TLS con `CERT_REQUIRED`:**
-   - Si el cliente no presenta certificado, el handshake se cancela de inmediato (`TLSV13_ALERT_CERTIFICATE_REQUIRED`).
+1. **Certificado obligatorio:**
+   - Sin certificado → `401 MISSING_CLIENT_CERTIFICATE`.
 2. **Verificación de la firma de la CA:**
-   - El servidor comprueba la validez matemática contra `ca.crt`. Si proviene de otra CA (Rogue CA), responde `TLSV1_ALERT_UNKNOWN_CA`.
+   - Se comprueba matemáticamente contra `ca.crt`. Si proviene de otra CA → `403 INVALID_ISSUER_CA`.
 3. **Validación de vigencia:**
-   - Se revisan las fechas `notBefore` y `notAfter`.
-4. **Verificación contra lista de revocación (CRL):**
-   - Si el número de serie está revocado, se deniega con código `403 CERTIFICATE_REVOKED`.
-5. **Identificación por Sujeto (CN):**
+   - Se revisan `notBefore` / `notAfter` → `403 CERTIFICATE_EXPIRED`.
+4. **Verificación de revocación:**
+   - Serie revocado → `403 CERTIFICATE_REVOKED`.
+5. **Prueba de posesión del reto:**
+   - Token HMAC válido, vigente y no usado + firma RSA-SHA256 verificada con la llave pública del certificado.
+   - Sin firma → `403 PROOF_OF_POSSESSION_REQUIRED`; reto reutilizado → `403 CHALLENGE_ALREADY_USED`.
+6. **Identificación por Sujeto (CN):**
    - El API extrae el `commonName` (ej. `cliente-desktop-01`) y autoriza la operación.
 
 ---
 
 ## Slide 8 — Demostración en Vivo (Guión de 3 minutos)
 
-1. **Abrir Servidor API:**
-   - Ejecutar `proyecto3-pki/api/iniciar_servidor.bat` (Escuchando en puerto 8443 con mTLS forzado).
-2. **Abrir Aplicativo de Escritorio:**
-   - Ejecutar `proyecto3-pki/app_escritorio/run_app.bat` (interfaz gráfica moderna).
+1. **Modo Nube (principal):**
+   - Ejecutar `python proyecto3-pki\test_cloud_api.py` o la app de escritorio en modo ☁️ Nube.
+   - Muestra: reto → firma local → `200 OK`, y los rechazos `401` / `403`.
+2. **Modo Local (mTLS real, opcional):**
+   - Ejecutar `proyecto3-pki/api/iniciar_servidor.bat` (puerto 8443, `CERT_REQUIRED`).
+   - En la app, seleccionar 🖥️ Local.
 3. **Prueba 1 — Acceso Autorizado:**
-   - Clic en **"🟢 Consumir con Certificado Válido"**.
-   - Se observa el handshake exitoso, el nombre del cliente y los datos confidenciales de la cuenta.
+   - Clic en **"🟢 Certificado Válido + Reto Firmado"**.
+   - Se observa el nombre del cliente y los datos confidenciales de la cuenta.
 4. **Prueba 2 — Ataque Sin Certificado:**
-   - Clic en **"🔴 Probar Ataque: Sin Certificado"**.
-   - El servidor corta la conexión con alerta TLS.
+   - Clic en **"🔴 Ataque: Sin Certificado"** → `401`.
 5. **Prueba 3 — Ataque con Certificado de Otra CA:**
-   - Clic en **"🟠 Probar Ataque: Certificado de Otra CA"**.
-   - Bloqueado con alerta `UNKNOWN_CA`.
+   - Clic en **"🟠 Ataque: Otra CA"** → `403 INVALID_ISSUER_CA`.
+6. **Prueba 4 — Copiar el certificado público (sin llave):**
+   - Clic en **"🟡 Ataque: Certificado sin Llave"** → `403 PROOF_OF_POSSESSION_REQUIRED`.
 
 ---
 
@@ -120,10 +135,12 @@ Cliente                                               Servidor API (mTLS)
 
 | Escenario | Comportamiento del Sistema |
 |---|---|
-| **Certificado Válido** | **Acceso permitido:** El API identifica al cliente matemáticamente por su certificado X.509 |
-| **Sin Certificado** | **Rechazado:** La conexión TLS se cierra antes de enviar cualquier mensaje HTTP |
-| **Certificado de Otra CA** | **Rechazado:** La CA propia de la Bóveda no lo firmó (`UNKNOWN_CA`) |
-| **Certificado Revocado / Vencido** | **Rechazado:** Se quita el acceso en el servidor sin tener que cambiar contraseñas |
+| **Certificado + reto firmado** | **Acceso permitido:** el API identifica al cliente y verifica la posesión de la llave privada |
+| **Sin Certificado** | **Rechazado:** `401 MISSING_CLIENT_CERTIFICATE` (o corte TLS en modo local) |
+| **Certificado de Otra CA** | **Rechazado:** `403 INVALID_ISSUER_CA` (o `UNKNOWN_CA` en mTLS local) |
+| **Certificado público copiado (sin llave)** | **Rechazado:** `403 PROOF_OF_POSSESSION_REQUIRED` |
+| **Reto reutilizado** | **Rechazado:** `403 CHALLENGE_ALREADY_USED` (anti-replay) |
+| **Certificado Revocado / Vencido** | **Rechazado:** `403 CERTIFICATE_REVOKED` / `CERTIFICATE_EXPIRED` |
 | **Llave privada del cliente filtrada** | **Único punto realmente vulnerable:** Quien tenga la llave privada se hace pasar por el cliente (mitigable con HSM o TPM de Windows) |
 
 ---

@@ -15,7 +15,7 @@ serial                  = $dir/serial
 RANDFILE                = $dir/.rand
 
 certificate             = $dir/certs/ca.crt
-private_key             = $dir/certs/ca.key
+private_key             = $dir/certs/private/ca.key
 
 default_md              = sha256
 default_days            = 365

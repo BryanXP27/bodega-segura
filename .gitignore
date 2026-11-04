@@ -25,6 +25,23 @@ package-lock.json
 .DS_Store
 *.pem
 
+# ============================================================
+# Proyecto 3 - PKI: material privado NUNCA se versiona
+# ============================================================
+proyecto3-pki/pki/certs/private/
+proyecto3-pki/pki/certs/*.key
+proyecto3-pki/pki/certs/*.pfx
+proyecto3-pki/pki/certs/*.srl
+proyecto3-pki/pki/index.txt
+proyecto3-pki/pki/index.txt.*
+proyecto3-pki/pki/serial
+proyecto3-pki/pki/crlnumber
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
 # debug
 npm-debug.log*
 yarn-debug.log*
