@@ -39,6 +39,7 @@ proyecto3-pki/pki/serial.old
 proyecto3-pki/pki/crlnumber
 proyecto3-pki/pki/crlnumber.old
 proyecto3-pki/pki/server_ext.cnf
+proyecto3-pki/pki/server_vm_ext.cnf
 proyecto3-pki/pki/.rand
 proyecto3-pki/pki/certs/issued/
 # La CRL es material PUBLICO y debe versionarse.

@@ -14,7 +14,9 @@
 | **Entidad Certificadora (CA)** | **Bóveda Segura Root CA** (RSA 4096 bits, SHA-256, extensiones `v3_ca`). |
 | **Formato de Credenciales** | Certificados digitales **X.509 v3** (RFC 5280) y contenedor **PKCS#12 (`.pfx`)**. |
 | **API en la Nube** | **Google Cloud Run:** `https://boveda-segura-git-931747537260.southamerica-west1.run.app/api/pki/operaciones`. |
-| **Motor de Validación Criptográfica** | Módulo nativo `crypto.X509Certificate` de Node.js en Cloud Run + `crypto.verify` para el reto firmado. |
+| **API con mTLS real** | **VM Compute Engine:** `https://34.176.58.90:8443/api/operaciones` (`e2-micro`, IP estática, `ssl.CERT_REQUIRED`). |
+| **Motor de Validación Criptográfica** | Módulo nativo `crypto.X509Certificate` de Node.js en Cloud Run + `crypto.verify` para el reto firmado. En la VM, `ssl` de Python + `openssl verify -crl_check`. |
+| **Revocación** | **CRL X.509 v2 real** generada con `openssl ca -gencrl`, firmada por la Root CA (`certs/crl.pem`). |
 | **Prueba de Posesión** | Reto (nonce) de un solo uso con TTL de 120 s, firmado localmente con RSA-SHA256 (PKCS#1 v1.5). |
 | **Superficie de Demostración** | Portal Web en vivo (`/pki`) con auditoría en DevTools (F12), app de escritorio Python y script CLI interactivo. |
 
@@ -72,15 +74,21 @@
    * **Principio de Mínima Exposición:** La clave privada del cliente (`client.key`) se genera en el equipo local del operador y **nunca sale de él ni se envía a la nube**.
    * A la CA solo viaja la solicitud de firma (**CSR**) con el nombre del cliente (`CN=cliente-desktop-01`, `OU=Operaciones Bancarias`) y su clave pública.
    * La CA firma el CSR y devuelve `client.crt`. Se empaqueta en `client.pfx` protegido con contraseña para importación en el almacén de Windows.
-   * En el repositorio solo se publican `ca.crt`, `client.crt`, `server.crt`, `attacker.crt` y los CSR. Las llaves viven en `pki/certs/private/` (**ignorada por Git**).
+   * En el repositorio solo se publican `ca.crt`, `client.crt`, `server.crt`, `attacker.crt`, `client-revocado.crt`, `client-vencido.crt`, `crl.pem` y los CSR. Las llaves viven en `pki/certs/private/` (**ignorada por Git**).
 
-3. **Validador Criptográfico en Google Cloud Run (`src/lib/pki/x509-validator.ts` + `challenge.ts`):**
+3. **Lista de Revocación de Certificados (CRL):**
+   * La CA mantiene una base de datos real (`index.txt`, `serial`, `crlnumber`).
+   * `pki/04_revocar.py` ejecuta `openssl ca -revoke` y `openssl ca -gencrl`, publicando `certs/crl.pem`.
+   * El script también actualiza `src/lib/pki/crl.ts` para que Cloud Run use la CRL nueva en el siguiente despliegue.
+   * La CRL se versiona porque es material **público**; sin ella el validador no puede detectar revocaciones.
+
+4. **Validador Criptográfico en Google Cloud Run (`src/lib/pki/x509-validator.ts` + `challenge.ts` + `crl-parser.ts`):**
    * Al recibir la petición, el servidor decodifica el certificado X.509 y ejecuta:
      ```typescript
      const isSignedByCA = clientCert.verify(caCert.publicKey);
      ```
    * Valida la vigencia temporal (`validFrom` / `validTo`).
-   * Consulta la lista de revocación de certificados (**CRL**).
+   * Verifica la **CRL**: decodifica el DER con un lector ASN.1, valida la firma de la CA, revisa `thisUpdate` / `nextUpdate` y busca el número de serie.
    * **Verifica la prueba de posesión:** valida el token HMAC del reto, su vigencia, que no haya sido usado y la firma RSA-SHA256 del nonce con la llave pública del certificado.
    * Extrae la identidad institucional del cliente (`commonName`).
 
@@ -146,6 +154,31 @@ Durante la sustentación se demuestran los escenarios de seguridad requeridos po
 * **Respuesta del Servidor:** `HTTP 403 Forbidden` (`CHALLENGE_ALREADY_USED`).
 * **Resultado:** Cada reto es de un solo uso y expira en 120 segundos.
 
+### 🧾 Caso 6: Certificado Revocado (CRL real)
+* **Acción:** El cliente presenta `client-revocado.crt` y firma correctamente el reto con su llave privada.
+* **Respuesta del Servidor:** `HTTP 403 Forbidden` (`CERTIFICATE_REVOKED`).
+* **Resultado:** La firma de la CA es válida, pero la serie `1002` aparece en la **CRL firmada** (`crl.pem`). Demuestra que la revocación es inmediata y no requiere cambiar contraseñas.
+* **Detalle técnico:** el servidor verifica la firma de la CRL con la llave pública de la CA y su vigencia (`thisUpdate` / `nextUpdate`). Si la CRL no es confiable, **falla cerrado**.
+
+### 🕒 Caso 7: Certificado Vencido
+* **Acción:** El cliente presenta `client-vencido.crt` (emitido con `notAfter = 2021-01-01`).
+* **Respuesta del Servidor:** `HTTP 403 Forbidden` (`CERTIFICATE_EXPIRED`). En la VM el corte ocurre en el handshake TLS (`certificate expired`).
+* **Resultado:** Un certificado con firma correcta pero fuera de vigencia no autentica.
+
+### 🔐 Caso 8: Acceso con PKCS#12 (`.pfx`)
+* **Acción:** La app de escritorio usa un único archivo `client.pfx` protegido con contraseña.
+* **Respuesta del Servidor:** `HTTP 200 OK`.
+* **Resultado:** El cliente extrae temporalmente certificado y llave a un directorio seguro (permisos restringidos), firma el reto y borra los temporales. El `.pfx` **nunca se publica** y su contraseña no viaja al servidor.
+
+### 🖥️ Caso 9: mTLS real en VM (handshake)
+* **Acción:** Se invoca `https://34.176.58.90:8443/api/operaciones` con `ssl.CERT_REQUIRED`.
+* **Resultados reales:**
+  * Certificado válido → `200 OK`.
+  * Sin certificado → corte TLS (`certificate required`).
+  * Certificado de otra CA → corte TLS (`unknown ca`).
+  * Certificado revocado → `403 CERTIFICATE_REVOKED` (OpenSSL `-crl_check`).
+  * Certificado vencido → corte TLS (`certificate expired`).
+
 ---
 
 ## 🚀 6. Guía Rápida para la Demostración en Vivo
@@ -160,6 +193,8 @@ Tienes dos opciones listas para proyectar ante el profesor:
    * **🟢 Probar Certificado sin Firma:** Demuestra que copiar `client.crt` ya **no** concede acceso (`403 PROOF_OF_POSSESSION_REQUIRED`).
    * **🔴 Probar Sin Certificado:** Bloqueo `401`.
    * **🟠 Probar CA Atacante:** Rechazo `403 INVALID_ISSUER_CA`.
+   * **🧾 Probar Certificado Revocado:** Rechazo `403 CERTIFICATE_REVOKED` (CRL real).
+   * **🕒 Probar Certificado Vencido:** Rechazo `403 CERTIFICATE_EXPIRED`.
    * **🔐 Obtener reto:** Muestra el nonce y el token que el aplicativo de escritorio debe firmar.
    > El acceso **válido** (200) requiere la llave privada, por eso se ejecuta desde la app de escritorio o el CLI, no desde el navegador.
 
@@ -168,6 +203,14 @@ Tienes dos opciones listas para proyectar ante el profesor:
 2. Deja el modo **☁️ Nube** seleccionado.
 3. Clic en **🟢 Certificado Válido + Reto Firmado** → `200 OK` con los datos de la bóveda.
 4. Prueba los ataques **🔴 Sin Certificado**, **🟠 Otra CA** y **🟡 Certificado sin Llave**.
+5. Clic en **🔐 Acceso con PKCS#12 (.pfx)** → `200 OK` con `client.pfx` y su contraseña.
+6. Clic en **🧾 Verificar CRL (revocado)** → `403 CERTIFICATE_REVOKED`.
+
+### Opción B2: mTLS real contra la VM (máxima fidelidad al enunciado)
+1. Verifica que la VM esté encendida y el servicio activo (`boveda-pki.service`).
+2. En la app, selecciona modo **🖥️ Local** y usa `https://34.176.58.90:8443/api/operaciones`.
+3. Repite las pruebas: válido `200`, sin certificado/otra CA/vencido cortados en TLS, revocado `403`.
+4. Desde PowerShell también se puede ejecutar la batería de 8 pruebas con `python proyecto3-pki\test_cloud_api.py`.
 
 ### Opción C: Demostración por Terminal de Windows (CLI)
 1. Abre la carpeta `proyecto3-pki\`.
@@ -189,4 +232,18 @@ Tienes dos opciones listas para proyectar ante el profesor:
 
 ### P4: ¿Dónde se aplica esto en la vida real?
 > *"En los sistemas de mensajería interbancaria (SWIFT / ISO 20022), en la autenticación de servidores en arquitecturas Kubernetes (Service Mesh / Istio con mTLS automático), en VPNs empresariales basadas en certificados y en pasarelas de pago bancarias seguras."*
+
+### P5: ¿Cómo funciona la revocación si el certificado todavía no vence?
+> *"La CA mantiene una base de datos (`index.txt`) y publica una CRL firmada con su llave privada. El validador comprueba la firma de la CRL, sus fechas y busca el número de serie del certificado. Si aparece, responde `403 CERTIFICATE_REVOKED` aunque la firma del certificado siga siendo matemáticamente válida. Para revocar se ejecuta `python pki/04_revocar.py --cert ...` y se redespliega la CRL."*
+
+### P6: ¿Qué pasa si la CRL está vencida o alguien la modifica?
+> *"Se falla cerrado. El validador rechaza el certificado con un código `CRL_EXPIRED`, `CRL_SIGNATURE_INVALID` o `CRL_MALFORMED`. Una CRL sin firma válida de la CA no se usa nunca; por eso `crl.pem` es público pero no manipulable."*
+
+### P7: ¿Cuánto cuesta la VM y qué se debe hacer al terminar?
+> *"La VM `e2-micro` con IP estática cuesta aproximadamente entre 7 y 10 dólares al mes. Al finalizar la presentación se elimina la instancia, la IP reservada y la regla de firewall para evitar cobros. El código y los certificados quedan versionados en el repositorio."*
+> ```powershell
+> gcloud compute instances delete boveda-pki-vm --zone southamerica-west1-a --project boveda-segura-512214 --quiet
+> gcloud compute addresses delete boveda-pki-vm-ip --region southamerica-west1 --project boveda-segura-512214 --quiet
+> gcloud compute firewall-rules delete allow-pki-mtls --project boveda-segura-512214 --quiet
+> ```
 

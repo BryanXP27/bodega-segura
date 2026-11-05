@@ -109,6 +109,29 @@ Para conectar Supabase:
 - Los archivos se verifican con HMAC-SHA256 antes de la descarga
 - No se almacenan contraseñas ni claves privadas sin cifrar
 
+## Proyecto 3 — PKI y API con Certificado Digital (mTLS)
+
+Este repositorio también incluye el **Proyecto 3** (UNDC 2026): una Mini-PKI con OpenSSL,
+un API con autenticación por certificado X.509 sin contraseñas ni API Keys, y despliegue
+en Google Cloud Run + una VM con mTLS real.
+
+- Página de demostración: `/pki`
+- Endpoints: `/api/pki/challenge`, `/api/pki/operaciones`, `/api/pki/health`, `/api/pki/demo-certs`
+- API con mTLS real: `https://34.176.58.90:8443/api/operaciones`
+- Documentación completa: [`proyecto3-pki/README.md`](proyecto3-pki/README.md)
+- Guía de exposición: [`GUIA_EXPOSICION_PROYECTO3.md`](GUIA_EXPOSICION_PROYECTO3.md)
+
+Características de seguridad implementadas:
+
+- Root CA propia (RSA 4096 / SHA-256) y certificados X.509 v3.
+- **CRL X.509 real** firmada por la CA (`openssl ca -gencrl`) con validación de firma y vigencia.
+- Certificados de demostración **revocado** y **vencido**.
+- **Prueba de posesión**: reto de un solo uso firmado con RSA-SHA256.
+- Soporte de **PKCS#12 (`.pfx`)** en el cliente Python.
+- mTLS real con `ssl.CERT_REQUIRED` en VM Compute Engine con IP estática.
+
+> 🔒 Las llaves privadas viven en `proyecto3-pki/pki/certs/private/` y están ignoradas por Git.
+
 ## Licencia
 
 Proyecto académico - Universidad Nacional de Cañete

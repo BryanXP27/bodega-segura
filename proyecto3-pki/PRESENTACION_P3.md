@@ -26,9 +26,10 @@
 |---|---|---|
 | **Autoridad Certificadora (CA)** | OpenSSL (RSA 4096 + SHA-256) | Crea la llave privada y el certificado raíz de la CA; con ellos firma los certificados que emite |
 | **Certificado de Cliente** | CSR + Certificado X.509 (.pfx / .crt) | El aplicativo genera su par de llaves y pide su certificado; la privada nunca sale de su equipo |
-| **Autenticación** | mTLS real (local/VM) + reto-firma (Cloud Run) | El cliente prueba la posesión de la llave privada firmando datos únicos; nada secreto viaja |
+| **Lista de Revocación (CRL)** | `openssl ca -gencrl` (X.509 v2) | La CA publica qué certificados quedaron invalidados antes de vencer; el validador la verifica |
+| **Autenticación** | mTLS real (VM) + reto-firma (Cloud Run) | El cliente prueba la posesión de la llave privada firmando datos únicos; nada secreto viaja |
 | **Aplicativo Cliente** | App de Escritorio Python (GUI Tkinter) | Presenta el certificado digital y firma el reto para consumir el API sin contraseñas |
-| **API en la Nube** | Google Cloud Run + validador X.509 | Valida la CA propia, vigencia, revocación y la firma del reto con la llave pública |
+| **API en la Nube** | Google Cloud Run + validador X.509 | Valida la CA propia, vigencia, CRL y la firma del reto con la llave pública |
 
 ---
 
@@ -37,15 +38,16 @@
 ```
                      [ Bóveda Segura Root CA ]
                       (ca.key + ca.crt - 4096)
-                                 │
-                 ┌───────────────┴───────────────┐
-                 ▼                               ▼
-       [ Certificado Servidor ]        [ Certificado Cliente ]
-          (server.crt - API)          (client.crt / client.pfx)
-                 │                               │
-                 ▼                               ▼
-    [ Servidor API Google Cloud ]    [ App de Escritorio ]
-          (https://api)           (Presenta Certificado Digital)
+                                 |
+                 +---------------+---------------+
+                 v               v               v
+       [ Certificado     [ Certificado     [ CRL firmada ]
+         Servidor ]         Cliente ]       (crl.pem)
+      (server-vm.crt)   (client.crt/pfx)
+                 |               |
+                 v               v
+    [ VM API mTLS ]      [ App de Escritorio ]
+    https://34.176.58.90:8443   (Presenta Certificado Digital)
 ```
 
 - **Cadena de Confianza:** El servidor solo confía en certificados cuya firma provenga matemáticamente de su CA Raíz (`ca.crt`).
@@ -79,7 +81,7 @@ App de escritorio                                  API Next.js en Cloud Run
    │ ◄── 4. 200 OK + Datos Autorizados (JSON) ───────────── │
 ```
 
-**B) Servidor local / VM — mTLS real en el handshake**
+**B) VM Compute Engine — mTLS real en el handshake (desplegado en 34.176.58.90:8443)**
 ```
    │ ─── 1. ClientHello (TLS 1.2 / 1.3) ──────────────────► │
    │ ◄── 2. ServerHello + Certificado Servidor ──────────── │
@@ -91,6 +93,7 @@ App de escritorio                                  API Next.js en Cloud Run
 ```
 - **Principio Zero-Secret:** nunca viajan contraseñas ni la llave privada; solo la firma digital del reto.
 - **Cloud Run** no permite mTLS con CA propia (termina TLS en el borde), por eso ahí se aplica el mismo principio a nivel de aplicación: reto firmado + validación X.509.
+- **La VM** sí valida el certificado durante el handshake (`ssl.CERT_REQUIRED`) y además consulta la CRL con `openssl verify -crl_check` antes de responder.
 
 ---
 
@@ -101,8 +104,10 @@ App de escritorio                                  API Next.js en Cloud Run
    - Se comprueba matemáticamente contra `ca.crt`. Si proviene de otra CA → `403 INVALID_ISSUER_CA`.
 3. **Validación de vigencia:**
    - Se revisan `notBefore` / `notAfter` → `403 CERTIFICATE_EXPIRED`.
-4. **Verificación de revocación:**
-   - Serie revocado → `403 CERTIFICATE_REVOKED`.
+4. **Verificación de revocación (CRL real):**
+   - La CA mantiene `index.txt` y firma una **CRL X.509** (`crl.pem`).
+   - El API decodifica la CRL, verifica su firma con `ca.crt`, revisa `thisUpdate` / `nextUpdate` y busca la serie.
+   - Serie revocado → `403 CERTIFICATE_REVOKED`. Si la CRL está vencida o mal firmada, se **falla cerrado** (`CRL_*`).
 5. **Prueba de posesión del reto:**
    - Token HMAC válido, vigente y no usado + firma RSA-SHA256 verificada con la llave pública del certificado.
    - Sin firma → `403 PROOF_OF_POSSESSION_REQUIRED`; reto reutilizado → `403 CHALLENGE_ALREADY_USED`.
@@ -116,9 +121,9 @@ App de escritorio                                  API Next.js en Cloud Run
 1. **Modo Nube (principal):**
    - Ejecutar `python proyecto3-pki\test_cloud_api.py` o la app de escritorio en modo ☁️ Nube.
    - Muestra: reto → firma local → `200 OK`, y los rechazos `401` / `403`.
-2. **Modo Local (mTLS real, opcional):**
-   - Ejecutar `proyecto3-pki/api/iniciar_servidor.bat` (puerto 8443, `CERT_REQUIRED`).
-   - En la app, seleccionar 🖥️ Local.
+2. **Modo Local / VM (mTLS real):**
+   - En la app, seleccionar 🖥️ Local contra `https://127.0.0.1:8443`, o la VM `https://34.176.58.90:8443`.
+   - El handshake exige certificado de cliente: sin cert, otra CA o vencido se cortan en TLS.
 3. **Prueba 1 — Acceso Autorizado:**
    - Clic en **"🟢 Certificado Válido + Reto Firmado"**.
    - Se observa el nombre del cliente y los datos confidenciales de la cuenta.
@@ -128,6 +133,12 @@ App de escritorio                                  API Next.js en Cloud Run
    - Clic en **"🟠 Ataque: Otra CA"** → `403 INVALID_ISSUER_CA`.
 6. **Prueba 4 — Copiar el certificado público (sin llave):**
    - Clic en **"🟡 Ataque: Certificado sin Llave"** → `403 PROOF_OF_POSSESSION_REQUIRED`.
+7. **Prueba 5 — Certificado revocado (CRL):**
+   - Clic en la tarjeta **"Certificado Revocado"** → `403 CERTIFICATE_REVOKED`.
+8. **Prueba 6 — Certificado vencido:**
+   - Clic en la tarjeta **"Certificado Vencido"** → `403 CERTIFICATE_EXPIRED`.
+9. **Prueba 7 — Acceso con PKCS#12 (.pfx):**
+   - Clic en **"🔐 Acceso con PKCS#12 (.pfx)"** → `200 OK` usando un único archivo protegido.
 
 ---
 
@@ -140,7 +151,9 @@ App de escritorio                                  API Next.js en Cloud Run
 | **Certificado de Otra CA** | **Rechazado:** `403 INVALID_ISSUER_CA` (o `UNKNOWN_CA` en mTLS local) |
 | **Certificado público copiado (sin llave)** | **Rechazado:** `403 PROOF_OF_POSSESSION_REQUIRED` |
 | **Reto reutilizado** | **Rechazado:** `403 CHALLENGE_ALREADY_USED` (anti-replay) |
-| **Certificado Revocado / Vencido** | **Rechazado:** `403 CERTIFICATE_REVOKED` / `CERTIFICATE_EXPIRED` |
+| **Certificado revocado** | **Rechazado:** `403 CERTIFICATE_REVOKED` — la CRL firmada por la CA lo invalida aunque su firma sea correcta |
+| **Certificado vencido** | **Rechazado:** `403 CERTIFICATE_EXPIRED` (o corte TLS en la VM) |
+| **Archivo `.pfx` comprometido** | **Único secreto real:** el `.pfx` contiene la llave privada; se protege con contraseña y nunca se versiona |
 | **Llave privada del cliente filtrada** | **Único punto realmente vulnerable:** Quien tenga la llave privada se hace pasar por el cliente (mitigable con HSM o TPM de Windows) |
 
 ---
