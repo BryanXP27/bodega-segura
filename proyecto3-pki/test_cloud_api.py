@@ -8,6 +8,9 @@ Valida el modelo completo de la rubrica:
 3. Certificado de otra CA (Rogue CA)                              -> 403 Forbidden
 4. Certificado valido SIN firma del reto                          -> 403 Proof-of-Possession
 5. Reutilizacion del mismo reto (anti-replay)                     -> 403 Challenge ya usado
+6. Certificado revocado (CRL firmada por la CA)                   -> 403 CERTIFICATE_REVOKED
+7. Certificado vencido                                            -> 403 CERTIFICATE_EXPIRED
+8. Autenticacion usando PKCS#12 (.pfx)                            -> 200 OK
 
 La llave privada del cliente (certs/private/client.key) nunca se envia.
 """
@@ -19,6 +22,7 @@ from pki_client import (
     CERTS_DIR,
     PRIVATE_DIR,
     authenticate,
+    authenticate_pfx,
     http_post_json,
     read_text,
     request_challenge,
@@ -29,6 +33,12 @@ CLIENT_CRT = os.path.join(CERTS_DIR, "client.crt")
 CLIENT_KEY = os.path.join(PRIVATE_DIR, "client.key")
 ATTACKER_CRT = os.path.join(CERTS_DIR, "attacker.crt")
 ATTACKER_KEY = os.path.join(PRIVATE_DIR, "attacker.key")
+REVOKED_CRT = os.path.join(CERTS_DIR, "client-revocado.crt")
+REVOKED_KEY = os.path.join(PRIVATE_DIR, "client-revocado.key")
+EXPIRED_CRT = os.path.join(CERTS_DIR, "client-vencido.crt")
+EXPIRED_KEY = os.path.join(PRIVATE_DIR, "client-vencido.key")
+CLIENT_PFX = os.path.join(PRIVATE_DIR, "client.pfx")
+PFX_PASSWORD = os.environ.get("PKI_PFX_PASSWORD", "password123")
 
 API_URL = os.environ.get(
     "API_URL",
@@ -158,6 +168,69 @@ def test_replay_same_challenge():
         return False
 
 
+def test_revoked_certificate():
+    print("\n" + "=" * 70)
+    print("TEST 6: Certificado revocado (CRL X.509 firmada por la CA)")
+    print("=" * 70)
+
+    try:
+        status, body, challenge = authenticate(ORIGIN, REVOKED_CRT, REVOKED_KEY)
+        if status == 403 and body.get("code") == "CERTIFICATE_REVOKED":
+            print(f"[STATUS] {status} Forbidden (esperado)")
+            print(f"[CODIGO] {body.get('code')}")
+            print(f"[RESPUESTA] {body.get('error')}")
+            print(f"[RETO] {challenge['expiresAt']} (firma valida, pero el certificado esta revocado)")
+            print("\n>>> RESULTADO: [APROBADO] La CRL real invalida el certificado.")
+            return True
+        print(f"[FALLO] HTTP {status}: {body}")
+        return False
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return False
+
+
+def test_expired_certificate():
+    print("\n" + "=" * 70)
+    print("TEST 7: Certificado vencido (notAfter en el pasado)")
+    print("=" * 70)
+
+    try:
+        status, body, challenge = authenticate(ORIGIN, EXPIRED_CRT, EXPIRED_KEY)
+        if status == 403 and body.get("code") == "CERTIFICATE_EXPIRED":
+            print(f"[STATUS] {status} Forbidden (esperado)")
+            print(f"[CODIGO] {body.get('code')}")
+            print(f"[RESPUESTA] {body.get('error')}")
+            print("\n>>> RESULTADO: [APROBADO] Un certificado vencido no autentica.")
+            return True
+        print(f"[FALLO] HTTP {status}: {body}")
+        return False
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return False
+
+
+def test_pfx_certificate():
+    print("\n" + "=" * 70)
+    print("TEST 8: Autenticacion usando PKCS#12 (.pfx)")
+    print("=" * 70)
+
+    try:
+        status, data, challenge = authenticate_pfx(ORIGIN, CLIENT_PFX, PFX_PASSWORD)
+        if status == 200 and data.get("success"):
+            client = data.get("auth_details", {}).get("client", {})
+            print(f"[STATUS] {status} OK")
+            print(f"[ARCHIVO] {os.path.basename(CLIENT_PFX)} (llave + certificado)")
+            print(f"[CLIENTE RECONOCIDO] {client.get('commonName')}")
+            print(f"[RETO VERIFICADO] {challenge['expiresAt']}")
+            print("\n>>> RESULTADO: [APROBADO] El cliente acepta PKCS#12 sin exponer la llave.")
+            return True
+        print(f"[FALLO] HTTP {status}: {data}")
+        return False
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return False
+
+
 def main():
     print("=" * 70)
     print("BATERIA DE PRUEBAS DEL PROYECTO 3 EN GOOGLE CLOUD RUN")
@@ -170,6 +243,9 @@ def main():
         ("Rechazo de certificado de otra CA", test_rogue_ca()),
         ("Rechazo de certificado sin firma", test_certificate_without_proof()),
         ("Rechazo de reto reutilizado", test_replay_same_challenge()),
+        ("Rechazo de certificado revocado (CRL)", test_revoked_certificate()),
+        ("Rechazo de certificado vencido", test_expired_certificate()),
+        ("Acceso con PKCS#12 (.pfx)", test_pfx_certificate()),
     ]
 
     print("\n" + "=" * 70)

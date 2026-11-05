@@ -9,9 +9,11 @@ default_ca              = ca_default
 [ ca_default ]
 dir                     = .
 certs                   = $dir/certs
-new_certs_dir           = $dir/certs
+new_certs_dir           = $dir/certs/issued
 database                = $dir/index.txt
 serial                  = $dir/serial
+crlnumber               = $dir/crlnumber
+default_crl_days        = 365
 RANDFILE                = $dir/.rand
 
 certificate             = $dir/certs/ca.crt

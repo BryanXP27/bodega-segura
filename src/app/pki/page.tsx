@@ -7,6 +7,8 @@ import { audit, auditGroup, auditWarn } from '@/lib/debug/audit';
 interface DemoCerts {
   clientCertificate: string;
   attackerCertificate: string;
+  revokedCertificate: string;
+  expiredCertificate: string;
 }
 
 export default function PkiPage() {
@@ -159,6 +161,61 @@ export default function PkiPage() {
     }
   };
 
+  const handleTestRevokedCert = async () => {
+    setActiveTest('revoked');
+    setLoading(true);
+    addLog('▶ [CRL] Presentando un certificado revocado por la Root CA...');
+
+    const endAudit = auditGroup('🛡️ PROYECTO 3: CERTIFICADO REVOCADO (CRL X.509)');
+    audit('📜', 'Paso 1: Se obtiene client-revocado.crt (certificado público emitido por la CA)');
+    audit('🧾', 'Paso 2: La CA incluyó su serie 0x1002 en la CRL firmada con su llave privada');
+    audit('☁️', 'Paso 3: Enviando a /api/pki/operaciones...');
+
+    try {
+      const certs = await loadDemoCerts();
+      setCertInput(certs.revokedCertificate);
+      const { res, data } = await postOperaciones({ clientCertificate: certs.revokedCertificate });
+
+      audit('🔍', 'Paso 4: Cloud Run verifica la firma de la CRL y busca el número de serie');
+      audit('🛑', `Paso 5: Rechazo: HTTP ${res.status} [${data.code}]`, data.error);
+      audit('✔', 'Paso 6: RESULTADO: la revocación es inmediata sin cambiar contraseñas.');
+      addLog(`🛡️ HTTP ${res.status} BLOQUEADO: ${data.code}`);
+    } catch (err: any) {
+      auditWarn('💥', 'Error de red en la llamada al API', err);
+      addLog(`❌ Error de red: ${err.message}`);
+    } finally {
+      endAudit();
+      setLoading(false);
+    }
+  };
+
+  const handleTestExpiredCert = async () => {
+    setActiveTest('expired');
+    setLoading(true);
+    addLog('▶ [VIGENCIA] Presentando un certificado vencido...');
+
+    const endAudit = auditGroup('🛡️ PROYECTO 3: CERTIFICADO VENCIDO');
+    audit('📜', 'Paso 1: Se obtiene client-vencido.crt (notAfter = 2021-01-01)');
+    audit('☁️', 'Paso 2: Enviando a /api/pki/operaciones...');
+
+    try {
+      const certs = await loadDemoCerts();
+      setCertInput(certs.expiredCertificate);
+      const { res, data } = await postOperaciones({ clientCertificate: certs.expiredCertificate });
+
+      audit('🕒', 'Paso 3: Cloud Run compara notBefore / notAfter con la hora actual');
+      audit('🛑', `Paso 4: Rechazo: HTTP ${res.status} [${data.code}]`, data.error);
+      audit('✔', 'Paso 5: RESULTADO: un certificado vencido no autentica aunque su firma sea válida.');
+      addLog(`🛡️ HTTP ${res.status} BLOQUEADO: ${data.code}`);
+    } catch (err: any) {
+      auditWarn('💥', 'Error de red en la llamada al API', err);
+      addLog(`❌ Error de red: ${err.message}`);
+    } finally {
+      endAudit();
+      setLoading(false);
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -267,7 +324,7 @@ export default function PkiPage() {
           <h2 className="text-lg font-semibold text-white mb-3">
             🧪 Pruebas de Evaluación (Rúbrica de Seguridad)
           </h2>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {/* Prueba 1: Certificado público sin firma */}
             <Card className="hover:border-emerald-500/50 transition-all border-emerald-500/20 bg-[#07241f]/40">
               <div className="flex items-start gap-3">
@@ -330,6 +387,52 @@ export default function PkiPage() {
                     isLoading={loading && activeTest === 'rogue'}
                   >
                     Probar CA Atacante
+                  </Button>
+                </div>
+              </div>
+            </Card>
+
+            {/* Prueba 4: Certificado revocado (CRL firmada) */}
+            <Card className="hover:border-rose-500/50 transition-all border-rose-500/20 bg-[#2a1020]/40">
+              <div className="flex items-start gap-3">
+                <span className="text-3xl">🧾</span>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-rose-200">Certificado Revocado</h3>
+                  <p className="mt-1 text-xs text-rose-100/60">
+                    <code>client-revocado.crt</code> está en la CRL firmada por la CA. Rechazo con
+                    <code className="ml-1">403 CERTIFICATE_REVOKED</code>.
+                  </p>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    className="mt-4 w-full"
+                    onClick={handleTestRevokedCert}
+                    isLoading={loading && activeTest === 'revoked'}
+                  >
+                    Probar Certificado Revocado
+                  </Button>
+                </div>
+              </div>
+            </Card>
+
+            {/* Prueba 5: Certificado vencido */}
+            <Card className="hover:border-slate-400/50 transition-all border-slate-400/20 bg-[#1b1f2a]/50">
+              <div className="flex items-start gap-3">
+                <span className="text-3xl">🕒</span>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-slate-200">Certificado Vencido</h3>
+                  <p className="mt-1 text-xs text-slate-300/60">
+                    <code>client-vencido.crt</code> expiró en 2021. Rechazo con
+                    <code className="ml-1">403 CERTIFICATE_EXPIRED</code>.
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="mt-4 w-full !bg-slate-600 hover:!bg-slate-500 !text-white"
+                    onClick={handleTestExpiredCert}
+                    isLoading={loading && activeTest === 'expired'}
+                  >
+                    Probar Certificado Vencido
                   </Button>
                 </div>
               </div>

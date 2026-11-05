@@ -18,8 +18,11 @@ import os
 import sys
 import json
 import ssl
+import shutil
+import subprocess
+import tempfile
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from datetime import datetime
+from datetime import datetime, timezone
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CERTS_DIR = os.path.join(os.path.dirname(BASE_DIR), "pki", "certs")
@@ -35,10 +38,81 @@ SERVER_CRT = os.path.join(CERTS_DIR, "server.crt")
 # En produccion puede montarse desde un secreto: SERVER_KEY=/run/secrets/server.key
 SERVER_KEY = os.environ.get("SERVER_KEY", os.path.join(PRIVATE_DIR, "server.key"))
 
-# Lista de numeros de serie revocados (Simulacion de CRL)
+# CRL real firmada por la Root CA (material publico).
+CRL_PEM = os.path.join(CERTS_DIR, "crl.pem")
+
+# Lista de respaldo si OpenSSL no esta disponible (la fuente principal es la CRL).
 REVOKED_SERIALS = [
-    "9999999999",  # Ejemplo de certificado cancelado
+    "1002",  # cliente-revocado-01 (generado por generar_pki.py)
 ]
+
+
+def find_openssl():
+    candidates = [
+        r"C:\Program Files\Git\mingw64\bin\openssl.exe",
+        r"C:\Program Files\Git\usr\bin\openssl.exe",
+        "openssl",
+    ]
+    for candidate in candidates:
+        if os.path.isabs(candidate):
+            if os.path.exists(candidate):
+                return candidate
+        elif shutil.which(candidate):
+            return candidate
+    return None
+
+
+def verify_certificate_with_crl(cert_der):
+    """
+    Valida el certificado del cliente con OpenSSL: cadena de confianza,
+    vigencia y revocacion contra la CRL firmada por la CA.
+
+    Devuelve (ok, code, message). El handshake TLS ya garantiza que la CA
+    firmo el certificado; aqui se agrega la CRL y la fecha de vigencia.
+    """
+    openssl = find_openssl()
+    if not openssl:
+        # Sin OpenSSL no se puede comprobar la CRL: se falla cerrado.
+        return False, "CRL_VALIDATION_UNAVAILABLE", "OpenSSL no esta disponible para validar la CRL."
+
+    if not os.path.exists(CRL_PEM):
+        return False, "CRL_MISSING", "No se encontro pki/certs/crl.pem. Ejecuta generar_pki.py."
+
+    fd, cert_path = tempfile.mkstemp(prefix="boveda_peer_", suffix=".pem")
+    os.close(fd)
+    try:
+        # `openssl verify` recibe PEM; convertimos el DER del handshake TLS.
+        with open(cert_path, "w", encoding="ascii", newline="\n") as f:
+            f.write(ssl.DER_cert_to_PEM_cert(cert_der))
+
+        result = subprocess.run(
+            [
+                openssl, "verify",
+                "-crl_check",
+                "-CAfile", CA_CRT,
+                "-CRLfile", CRL_PEM,
+                cert_path,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        output = (result.stdout or "") + (result.stderr or "")
+        if result.returncode == 0:
+            return True, None, output.strip()
+
+        lowered = output.lower()
+        if "revoked" in lowered:
+            return False, "CERTIFICATE_REVOKED", "El certificado figura en la CRL firmada por la Root CA."
+        if "expired" in lowered:
+            return False, "CERTIFICATE_EXPIRED", "El certificado esta fuera de su periodo de vigencia."
+        if "not yet valid" in lowered:
+            return False, "CERTIFICATE_NOT_YET_VALID", "El certificado aun no es valido."
+        return False, "CERTIFICATE_INVALID", output.strip()
+    finally:
+        try:
+            os.remove(cert_path)
+        except OSError:
+            pass
 
 
 def parse_dn(dn_tuple):
@@ -75,9 +149,11 @@ class MTLSRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         # 1. Obtener el certificado presentado por el cliente en el handshake TLS
         client_cert = None
+        client_cert_der = None
         try:
             if hasattr(self.connection, "getpeercert"):
                 client_cert = self.connection.getpeercert()
+                client_cert_der = self.connection.getpeercert(binary_form=True)
         except Exception as e:
             print(f"[!] Error leyendo certificado del cliente: {e}")
 
@@ -110,12 +186,24 @@ class MTLSRequestHandler(BaseHTTPRequestHandler):
         serial_number = str(client_cert.get("serialNumber", ""))
         not_after = client_cert.get("notAfter", "")
 
-        # Verificar si el certificado esta en la lista de revocacion (CRL)
-        if serial_number in REVOKED_SERIALS:
+        # Verificar vigencia y revocacion contra la CRL real firmada por la CA.
+        # Si OpenSSL no esta disponible se aplica la lista de respaldo.
+        crl_ok = False
+        if client_cert_der:
+            crl_ok, crl_code, crl_message = verify_certificate_with_crl(client_cert_der)
+            if not crl_ok:
+                self._send_json(403, {
+                    "error": f"Acceso Denegado: {crl_message}",
+                    "code": crl_code,
+                    "serial_number": serial_number,
+                })
+                return
+
+        if not crl_ok and serial_number.lstrip("0") in {s.lstrip("0") for s in REVOKED_SERIALS}:
             self._send_json(403, {
-                "error": "Acceso Denegado: Certificado Revocado",
+                "error": "Acceso Denegado: Certificado Revocado (lista de respaldo)",
                 "code": "CERTIFICATE_REVOKED",
-                "serial_number": serial_number
+                "serial_number": serial_number,
             })
             return
 

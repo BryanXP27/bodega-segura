@@ -154,3 +154,85 @@ def authenticate(origin, cert_path, key_path):
     }
     status, body = http_post_json(f"{origin}/api/pki/operaciones", payload)
     return status, body, challenge
+
+
+def extract_pfx_to_pem(pfx_path, password):
+    """
+    Extrae certificado y llave privada de un PKCS#12 (.pfx) a archivos PEM
+    temporales usando OpenSSL. Devuelve (cert_path, key_path, tmpdir).
+
+    El llamador es responsable de borrar `tmpdir` con shutil.rmtree.
+    """
+    if not os.path.exists(pfx_path):
+        raise FileNotFoundError(
+            f"No se encontro el archivo PKCS#12: {pfx_path}\n"
+            "Genera la PKI con: python pki/generar_pki.py"
+        )
+
+    openssl = find_openssl()
+    if not openssl:
+        raise RuntimeError(
+            "No se encontro OpenSSL. Instalalo o agrega su ruta al PATH para usar .pfx."
+        )
+
+    tmpdir = tempfile.mkdtemp(prefix="boveda_pfx_")
+    cert_path = os.path.join(tmpdir, "client.crt")
+    key_path = os.path.join(tmpdir, "client.key")
+    passin = f"pass:{password}"
+
+    try:
+        subprocess.run(
+            [
+                openssl, "pkcs12", "-in", pfx_path,
+                "-clcerts", "-nokeys", "-passin", passin,
+                "-out", cert_path,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            [
+                openssl, "pkcs12", "-in", pfx_path,
+                "-nocerts", "-nodes", "-passin", passin,
+                "-out", key_path,
+            ],
+            check=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            f"No se pudo abrir el archivo .pfx (password incorrecto o archivo corrupto): {detail}"
+        ) from exc
+
+    return cert_path, key_path, tmpdir
+
+
+def sign_nonce_pfx(nonce, pfx_path, password):
+    """Firma el nonce usando la llave privada contenida en un PKCS#12 (.pfx)."""
+    cert_path, key_path, tmpdir = extract_pfx_to_pem(pfx_path, password)
+    try:
+        return sign_nonce(nonce, key_path)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def authenticate_pfx(origin, pfx_path, password):
+    """
+    Flujo completo usando un unico archivo PKCS#12 (.pfx):
+    pide reto, extrae temporalmente la llave, firma el nonce y llama al API.
+    """
+    cert_path, key_path, tmpdir = extract_pfx_to_pem(pfx_path, password)
+    try:
+        challenge = request_challenge(origin)
+        signature = sign_nonce(challenge["nonce"], key_path)
+        payload = {
+            "clientCertificate": read_text(cert_path),
+            "challengeToken": challenge["token"],
+            "signature": signature,
+        }
+        status, body = http_post_json(f"{origin}/api/pki/operaciones", payload)
+        return status, body, challenge
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)

@@ -14,12 +14,13 @@ La llave privada (certs/private/client.key) nunca sale del equipo.
 import os
 import sys
 import json
+import shutil
 import ssl
 import threading
 import urllib.request
 import urllib.error
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(BASE_DIR)
@@ -28,6 +29,8 @@ if PROJECT_DIR not in sys.path:
 
 from pki_client import (  # noqa: E402
     authenticate,
+    authenticate_pfx,
+    extract_pfx_to_pem,
     http_post_json,
     read_text,
     request_challenge,
@@ -44,6 +47,8 @@ DEFAULT_CLIENT_PFX = os.path.join(PRIVATE_DIR, "client.pfx")
 
 ATTACKER_CRT = os.path.join(CERTS_DIR, "attacker.crt")
 ATTACKER_KEY = os.path.join(PRIVATE_DIR, "attacker.key")
+REVOKED_CRT = os.path.join(CERTS_DIR, "client-revocado.crt")
+EXPIRED_CRT = os.path.join(CERTS_DIR, "client-vencido.crt")
 
 CLOUD_ORIGIN = "https://boveda-segura-git-931747537260.southamerica-west1.run.app"
 CLOUD_API_URL = f"{CLOUD_ORIGIN}/api/pki/operaciones"
@@ -54,8 +59,8 @@ class BovedaPKIApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Bóveda Segura — Cliente PKI (Proyecto 3 UNDC)")
-        self.root.geometry("900x760")
-        self.root.minsize(840, 680)
+        self.root.geometry("920x860")
+        self.root.minsize(860, 740)
         self.root.configure(bg="#071d2a")
 
         # Variables de estado
@@ -64,6 +69,10 @@ class BovedaPKIApp:
         self.ca_path_var = tk.StringVar(value=DEFAULT_CA)
         self.client_crt_var = tk.StringVar(value=DEFAULT_CLIENT_CRT)
         self.client_key_var = tk.StringVar(value=DEFAULT_CLIENT_KEY)
+        self.pfx_path_var = tk.StringVar(value=DEFAULT_CLIENT_PFX)
+        self.pfx_password_var = tk.StringVar(
+            value=os.environ.get("PKI_PFX_PASSWORD", "password123")
+        )
         self.status_var = tk.StringVar(value="Listo para autenticación PKI")
 
         self.setup_ui()
@@ -130,6 +139,13 @@ class BovedaPKIApp:
         tk.Entry(config_box, textvariable=self.client_key_var, bg="#0f293d", fg="#fca5a5", insertbackground="#38bdf8", width=55, font=("Consolas", 9)).grid(row=3, column=1, sticky="ew", padx=8, pady=4)
         tk.Button(config_box, text="Examinar...", bg="#1e293b", fg="#ffffff", command=self.browse_client_key, relief=tk.FLAT).grid(row=3, column=2, padx=4)
 
+        tk.Label(config_box, text="Paquete PKCS#12 (.pfx):", bg="#082331", fg="#cbd5e1").grid(row=4, column=0, sticky="w", pady=4)
+        tk.Entry(config_box, textvariable=self.pfx_path_var, bg="#0f293d", fg="#fde68a", insertbackground="#38bdf8", width=55, font=("Consolas", 9)).grid(row=4, column=1, sticky="ew", padx=8, pady=4)
+        tk.Button(config_box, text="Examinar...", bg="#1e293b", fg="#ffffff", command=self.browse_pfx, relief=tk.FLAT).grid(row=4, column=2, padx=4)
+
+        tk.Label(config_box, text="Password del .pfx:", bg="#082331", fg="#cbd5e1").grid(row=5, column=0, sticky="w", pady=4)
+        tk.Entry(config_box, textvariable=self.pfx_password_var, show="*", bg="#0f293d", fg="#fde68a", insertbackground="#38bdf8", width=55, font=("Consolas", 9)).grid(row=5, column=1, sticky="ew", padx=8, pady=4)
+
         config_box.columnconfigure(1, weight=1)
 
         # 4. Panel de Acciones y Pruebas (Rúbrica)
@@ -140,6 +156,9 @@ class BovedaPKIApp:
         tk.Button(actions_box, text="🔴 Ataque: Sin Certificado", bg="#dc2626", fg="#ffffff", font=("Segoe UI", 10, "bold"), relief=tk.FLAT, padx=10, pady=6, cursor="hand2", command=self.run_no_cert_attack).grid(row=0, column=1, padx=4, pady=4, sticky="ew")
         tk.Button(actions_box, text="🟠 Ataque: Otra CA", bg="#d97706", fg="#ffffff", font=("Segoe UI", 10, "bold"), relief=tk.FLAT, padx=10, pady=6, cursor="hand2", command=self.run_rogue_cert_attack).grid(row=0, column=2, padx=4, pady=4, sticky="ew")
         tk.Button(actions_box, text="🟡 Ataque: Certificado sin Llave", bg="#ca8a04", fg="#ffffff", font=("Segoe UI", 10, "bold"), relief=tk.FLAT, padx=10, pady=6, cursor="hand2", command=self.run_no_proof_attack).grid(row=0, column=3, padx=4, pady=4, sticky="ew")
+
+        tk.Button(actions_box, text="🔐 Acceso con PKCS#12 (.pfx)", bg="#0e7490", fg="#ffffff", font=("Segoe UI", 10, "bold"), relief=tk.FLAT, padx=10, pady=6, cursor="hand2", command=self.run_valid_pfx_auth).grid(row=1, column=0, columnspan=2, padx=4, pady=(8, 4), sticky="ew")
+        tk.Button(actions_box, text="🧾 Verificar CRL (revocado)", bg="#9f1239", fg="#ffffff", font=("Segoe UI", 10, "bold"), relief=tk.FLAT, padx=10, pady=6, cursor="hand2", command=self.run_revoked_demo).grid(row=1, column=2, columnspan=2, padx=4, pady=(8, 4), sticky="ew")
 
         for col in range(4):
             actions_box.columnconfigure(col, weight=1)
@@ -184,6 +203,11 @@ class BovedaPKIApp:
         f = filedialog.askopenfilename(title="Seleccionar Llave Privada del Cliente", filetypes=[("Llave Privada", "*.key *.pem")])
         if f:
             self.client_key_var.set(f)
+
+    def browse_pfx(self):
+        f = filedialog.askopenfilename(title="Seleccionar Paquete PKCS#12", filetypes=[("PKCS#12", "*.pfx *.p12")])
+        if f:
+            self.pfx_path_var.set(f)
 
     # ------------------------------------------------------------------
     # PRUEBA 1: ACCESO VÁLIDO
@@ -287,6 +311,127 @@ class BovedaPKIApp:
         except Exception as e:
             self.log(f"❌ [FALLO DE CONEXIÓN]: {e}")
             self.status_var.set("Error en conexión mTLS local")
+
+    # ------------------------------------------------------------------
+    # PRUEBA 1B: ACCESO USANDO PKCS#12 (.pfx)
+    # ------------------------------------------------------------------
+    def run_valid_pfx_auth(self):
+        threading.Thread(target=self._exec_valid_pfx_auth, daemon=True).start()
+
+    def _pfx_password(self):
+        password = self.pfx_password_var.get()
+        if password:
+            return password
+        typed = simpledialog.askstring(
+            "PKCS#12",
+            "Contraseña del archivo .pfx:",
+            show="*",
+            parent=self.root,
+        )
+        if typed is None:
+            return None
+        self.pfx_password_var.set(typed)
+        return typed
+
+    def _exec_valid_pfx_auth(self):
+        pfx_file = self.pfx_path_var.get()
+        password = self._pfx_password()
+        if password is None:
+            return
+        if not os.path.exists(pfx_file):
+            self.log(f"❌ ERROR: No se encontró el archivo .pfx: {pfx_file}")
+            self.log("   Ejecuta: python pki/generar_pki.py")
+            return
+
+        self.status_var.set("Autenticando con PKCS#12...")
+        self.log("\n" + "=" * 70)
+        self.log("▶ [INICIO] AUTENTICACIÓN CON PKCS#12 (.pfx)")
+        self.log("=" * 70)
+        self.log(f"1. Paquete PKCS#12: {os.path.basename(pfx_file)}")
+        self.log("2. Extrayendo certificado y llave privada a un directorio temporal...")
+
+        if self.mode_var.get() == "cloud":
+            url = self.api_url_var.get()
+            origin = url.split("/api/pki/", 1)[0]
+            try:
+                self.log("3. Solicitando reto y firmando el nonce con la llave del .pfx...")
+                status, data, challenge = authenticate_pfx(origin, pfx_file, password)
+
+                if status == 200:
+                    client = data.get("auth_details", {}).get("client", {})
+                    self.log(f"✔ [HTTP {status}] {data.get('message')}")
+                    self.log(f"✔ [CLIENTE IDENTIFICADO]: {client.get('commonName')}")
+                    self.log(f"✔ [RETO VERIFICADO]: {challenge['expiresAt']}")
+                    self.log("✔ [DATOS DE LA BÓVEDA OBTENIDOS SIN CONTRASEÑAS]:")
+                    self.log(json.dumps(data.get("boveda_data", {}), indent=4))
+                    self.status_var.set("Autenticación PKCS#12 completada")
+                    messagebox.showinfo("Éxito PKCS#12", "Autenticación exitosa usando .pfx.")
+                else:
+                    self.log(f"❌ [HTTP {status}] {data.get('code')}: {data.get('error')}")
+                    self.status_var.set("Acceso denegado usando .pfx")
+            except Exception as e:
+                self.log(f"❌ [FALLO DE CONEXIÓN]: {e}")
+                self.status_var.set("Error con el archivo .pfx")
+            return
+
+        # Modo local mTLS: se extrae el .pfx a PEM temporales para el handshake TLS.
+        ca_file = self.ca_path_var.get()
+        url = self.api_url_var.get()
+        tmpdir = None
+        try:
+            cert_path, key_path, tmpdir = extract_pfx_to_pem(pfx_file, password)
+            self.log("3. Ejecutando handshake mTLS con el certificado extraído...")
+            context = ssl.create_default_context(cafile=ca_file)
+            context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, context=context, timeout=8) as response:
+                status = response.status
+                data = json.loads(response.read().decode("utf-8"))
+                self.log(f"✔ [HANDSHAKE mTLS EXITOSO] Status HTTP: {status} OK")
+                self.log(f"✔ [CLIENTE IDENTIFICADO]: {data.get('auth_details', {}).get('client_subject', {}).get('commonName', 'OK')}")
+                self.log("✔ [DATOS DE LA BÓVEDA OBTENIDOS SIN CONTRASEÑAS]:")
+                self.log(json.dumps(data.get("boveda_data", {}), indent=4))
+                self.status_var.set("Autenticación mTLS con .pfx completada")
+                messagebox.showinfo("Éxito mTLS", "Autenticación exitosa usando .pfx.")
+        except Exception as e:
+            self.log(f"❌ [FALLO DE CONEXIÓN]: {e}")
+            self.status_var.set("Error en mTLS usando .pfx")
+        finally:
+            if tmpdir:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
+    # ------------------------------------------------------------------
+    # PRUEBA 1C: CERTIFICADO REVOCADO (CRL REAL)
+    # ------------------------------------------------------------------
+    def run_revoked_demo(self):
+        threading.Thread(target=self._exec_revoked_demo, daemon=True).start()
+
+    def _exec_revoked_demo(self):
+        self.status_var.set("Verificando certificado revocado contra la CRL...")
+        self.log("\n" + "=" * 70)
+        self.log("▶ [CRL] CERTIFICADO REVOCADO POR LA AUTORIDAD CERTIFICADORA")
+        self.log("=" * 70)
+
+        if not os.path.exists(REVOKED_CRT):
+            self.log("❌ ERROR: No se encontró certs/client-revocado.crt.")
+            return
+
+        if self.mode_var.get() == "cloud":
+            try:
+                self.log("1. Presentando client-revocado.crt (serie incluida en la CRL)...")
+                status, data = http_post_json(
+                    self.api_url_var.get(),
+                    {"clientCertificate": read_text(REVOKED_CRT)},
+                )
+                self.log(f"🛡️ [HTTP {status}] {data.get('code')}: {data.get('error')}")
+                self.log("✔ RESULTADO ESPERADO: la CRL firmada por la CA invalida el certificado.")
+                self.status_var.set("Certificado revocado bloqueado")
+            except Exception as e:
+                self.log(f"❌ [ERROR]: {e}")
+            return
+
+        self.log("En modo local, el servidor valida la CRL real antes de autorizar.")
+        self.log("Selecciona el modo NUBE para ver el rechazo de forma directa.")
 
     # ------------------------------------------------------------------
     # PRUEBA 2: SIN CERTIFICADO
