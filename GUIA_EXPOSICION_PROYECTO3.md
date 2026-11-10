@@ -14,7 +14,7 @@
 | **Entidad Certificadora (CA)** | **Bóveda Segura Root CA** (RSA 4096 bits, SHA-256, extensiones `v3_ca`). |
 | **Formato de Credenciales** | Certificados digitales **X.509 v3** (RFC 5280) y contenedor **PKCS#12 (`.pfx`)**. |
 | **API en la Nube** | **Google Cloud Run:** `https://boveda-segura-git-931747537260.southamerica-west1.run.app/api/pki/operaciones`. |
-| **API con mTLS real** | **VM Compute Engine:** `https://34.176.58.90:8443/api/operaciones` (`e2-micro`, IP estática, `ssl.CERT_REQUIRED`). |
+| **API con mTLS real** | **VM Compute Engine (verificada y desmontada el 2026-11-09):** se validó `https://34.176.58.90:8443/api/operaciones` (`e2-micro`, IP estática, `ssl.CERT_REQUIRED`). |
 | **Motor de Validación Criptográfica** | Módulo nativo `crypto.X509Certificate` de Node.js en Cloud Run + `crypto.verify` para el reto firmado. En la VM, `ssl` de Python + `openssl verify -crl_check`. |
 | **Revocación** | **CRL X.509 v2 real** generada con `openssl ca -gencrl`, firmada por la Root CA (`certs/crl.pem`). |
 | **Prueba de Posesión** | Reto (nonce) de un solo uso con TTL de 120 s, firmado localmente con RSA-SHA256 (PKCS#1 v1.5). |
@@ -170,8 +170,8 @@ Durante la sustentación se demuestran los escenarios de seguridad requeridos po
 * **Respuesta del Servidor:** `HTTP 200 OK`.
 * **Resultado:** El cliente extrae temporalmente certificado y llave a un directorio seguro (permisos restringidos), firma el reto y borra los temporales. El `.pfx` **nunca se publica** y su contraseña no viaja al servidor.
 
-### 🖥️ Caso 9: mTLS real en VM (handshake)
-* **Acción:** Se invoca `https://34.176.58.90:8443/api/operaciones` con `ssl.CERT_REQUIRED`.
+### 🖥️ Caso 9: mTLS real en VM (handshake, verificado antes del desmontaje)
+* **Acción:** Se invocó `https://34.176.58.90:8443/api/operaciones` con `ssl.CERT_REQUIRED`.
 * **Resultados reales:**
   * Certificado válido → `200 OK`.
   * Sin certificado → corte TLS (`certificate required`).
@@ -206,9 +206,12 @@ Tienes dos opciones listas para proyectar ante el profesor:
 5. Clic en **🔐 Acceso con PKCS#12 (.pfx)** → `200 OK` con `client.pfx` y su contraseña.
 6. Clic en **🧾 Verificar CRL (revocado)** → `403 CERTIFICATE_REVOKED`.
 
-### Opción B2: mTLS real contra la VM (máxima fidelidad al enunciado)
+### Opción B2: mTLS real contra una VM (máxima fidelidad al enunciado)
+> La VM de la demo se eliminó el **2026-11-09** para detener el cobro. Los resultados ya
+> quedaron documentados. Si se necesita repetir en vivo, vuelve a desplegarla siguiendo
+> `proyecto3-pki/README.md` (sección “Cómo volver a desplegar la VM”).
 1. Verifica que la VM esté encendida y el servicio activo (`boveda-pki.service`).
-2. En la app, selecciona modo **🖥️ Local** y usa `https://34.176.58.90:8443/api/operaciones`.
+2. En la app, selecciona modo **🖥️ Local** y usa `https://<IP_PUBLICA>:8443/api/operaciones`.
 3. Repite las pruebas: válido `200`, sin certificado/otra CA/vencido cortados en TLS, revocado `403`.
 4. Desde PowerShell también se puede ejecutar la batería de 8 pruebas con `python proyecto3-pki\test_cloud_api.py`.
 

@@ -47,7 +47,7 @@
                  |               |
                  v               v
     [ VM API mTLS ]      [ App de Escritorio ]
-    https://34.176.58.90:8443   (Presenta Certificado Digital)
+    https://<IP_VM>:8443        (Presenta Certificado Digital)
 ```
 
 - **Cadena de Confianza:** El servidor solo confía en certificados cuya firma provenga matemáticamente de su CA Raíz (`ca.crt`).
@@ -81,7 +81,7 @@ App de escritorio                                  API Next.js en Cloud Run
    │ ◄── 4. 200 OK + Datos Autorizados (JSON) ───────────── │
 ```
 
-**B) VM Compute Engine — mTLS real en el handshake (desplegado en 34.176.58.90:8443)**
+**B) VM Compute Engine — mTLS real en el handshake (verificado en `34.176.58.90:8443`; VM desmontada el 2026-11-09)**
 ```
    │ ─── 1. ClientHello (TLS 1.2 / 1.3) ──────────────────► │
    │ ◄── 2. ServerHello + Certificado Servidor ──────────── │
@@ -122,7 +122,7 @@ App de escritorio                                  API Next.js en Cloud Run
    - Ejecutar `python proyecto3-pki\test_cloud_api.py` o la app de escritorio en modo ☁️ Nube.
    - Muestra: reto → firma local → `200 OK`, y los rechazos `401` / `403`.
 2. **Modo Local / VM (mTLS real):**
-   - En la app, seleccionar 🖥️ Local contra `https://127.0.0.1:8443`, o la VM `https://34.176.58.90:8443`.
+   - En la app, seleccionar 🖥️ Local contra `https://127.0.0.1:8443`, o contra la VM si se vuelve a desplegar.
    - El handshake exige certificado de cliente: sin cert, otra CA o vencido se cortan en TLS.
 3. **Prueba 1 — Acceso Autorizado:**
    - Clic en **"🟢 Certificado Válido + Reto Firmado"**.

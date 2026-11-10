@@ -117,7 +117,8 @@ en Google Cloud Run + una VM con mTLS real.
 
 - Página de demostración: `/pki`
 - Endpoints: `/api/pki/challenge`, `/api/pki/operaciones`, `/api/pki/health`, `/api/pki/demo-certs`
-- API con mTLS real: `https://34.176.58.90:8443/api/operaciones`
+- API con mTLS real: se verificó `https://34.176.58.90:8443/api/operaciones` en una VM
+  Compute Engine (VM, IP y firewall eliminados el 2026-11-09 para detener el cobro).
 - Documentación completa: [`proyecto3-pki/README.md`](proyecto3-pki/README.md)
 - Guía de exposición: [`GUIA_EXPOSICION_PROYECTO3.md`](GUIA_EXPOSICION_PROYECTO3.md)
 

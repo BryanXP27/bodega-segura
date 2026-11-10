@@ -201,11 +201,13 @@ La CRL se decodifica con un parser ASN.1 propio (`src/lib/pki/crl-parser.ts`) y 
 se verifica con `crypto.verify` usando la llave pública de la Root CA. Si la CRL está
 vencida, mal formada o mal firmada, la validación **falla cerrado** (`CRL_*`).
 
-### VM Compute Engine — mTLS real (implementación activa)
+### VM Compute Engine — mTLS real (verificado y desmontado)
 
-mTLS de verdad con `ssl.CERT_REQUIRED`, desplegado en una VM con IP estática:
+mTLS de verdad con `ssl.CERT_REQUIRED`, desplegado y probado en una VM con IP estática.
+**La VM, la IP y el firewall se eliminaron el 2026-11-09** para detener el cobro; los
+resultados de abajo son la evidencia de la verificación previa.
 
-| Dato | Valor |
+| Dato | Valor (durante la demostración) |
 |---|---|
 | URL | `https://34.176.58.90:8443/api/operaciones` |
 | Instancia | `boveda-pki-vm` (`e2-micro`, Debian 12, `southamerica-west1-a`) |
@@ -219,19 +221,30 @@ Resultados reales del handshake TLS:
 | Caso | Resultado |
 |---|---|
 | Certificado válido | **200 OK** (`CN=cliente-desktop-01`) |
+| Acceso con `.pfx` | **200 OK** (`CN=cliente-desktop-01`) |
 | Sin certificado | **cortado en TLS** (`certificate required`) |
 | Certificado de otra CA | **cortado en TLS** (`unknown ca`) |
 | Certificado revocado | **403** `CERTIFICATE_REVOKED` (CRL con `openssl verify -crl_check`) |
 | Certificado vencido | **cortado en TLS** (`certificate expired`) |
 
-Despliegue (resumen):
+> ℹ️ La CA, la CRL y los certificados de cliente siguen intactos en el repositorio. Solo
+> se apagó la infraestructura de cómputo; Cloud Run continúa operativo.
+
+#### Cómo volver a desplegar la VM (si se necesita otra demo)
 
 ```powershell
-# 1. Emitir el certificado del servidor con la IP pública en el SAN
-$env:PKI_SERVER_IP = "34.176.58.90"
+# 0. Reservar una IP estática nueva y una regla de firewall
+gcloud compute addresses create boveda-pki-vm-ip --region southamerica-west1 --project boveda-segura-512214
+gcloud compute firewall-rules create allow-pki-mtls --project boveda-segura-512214 --allow tcp:8443 --target-tags boveda-pki --source-ranges 0.0.0.0/0
+
+# 1. Crear la VM con esa IP
+gcloud compute instances create boveda-pki-vm --project boveda-segura-512214 --zone southamerica-west1-a --machine-type e2-micro --image-family debian-12 --image-project debian-cloud --boot-disk-size 10GB --address <IP_NUEVA> --tags boveda-pki
+
+# 2. Emitir el certificado del servidor con la IP pública en el SAN
+$env:PKI_SERVER_IP = "<IP_NUEVA>"
 python proyecto3-pki\pki\emitir_cert_servidor.py
 
-# 2. Copiar a la VM
+# 3. Copiar a la VM
 #    api/server.py                -> /opt/boveda-pki/api/server.py
 #    api/boveda-pki.service       -> /opt/boveda-pki/api/boveda-pki.service
 #    pki/certs/ca.crt             -> /opt/boveda-pki/pki/certs/ca.crt
@@ -239,14 +252,14 @@ python proyecto3-pki\pki\emitir_cert_servidor.py
 #    pki/certs/crl.pem            -> /opt/boveda-pki/pki/certs/crl.pem
 #    pki/certs/private/server-vm.key -> /opt/boveda-pki/pki/certs/private/server.key
 
-# 3. Instalar el servicio
+# 4. Instalar el servicio
 sudo chmod 600 /opt/boveda-pki/pki/certs/private/server.key
 sudo cp /opt/boveda-pki/api/boveda-pki.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now boveda-pki.service
 ```
 
-> 💸 **Limpieza obligatoria después de la presentación** (evita cobros):
+> 💸 **Limpieza después de cada demo** (evita cobros):
 > ```powershell
 > gcloud compute instances delete boveda-pki-vm --zone southamerica-west1-a --project boveda-segura-512214 --quiet
 > gcloud compute addresses delete boveda-pki-vm-ip --region southamerica-west1 --project boveda-segura-512214 --quiet
