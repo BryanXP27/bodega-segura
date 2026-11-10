@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Card, Button, Spinner } from '@/components/ui';
 import { audit, auditGroup, auditWarn } from '@/lib/debug/audit';
+import { signNonceInBrowser } from '@/lib/pki/web-crypto-signer';
 
 interface DemoCerts {
   clientCertificate: string;
@@ -71,6 +72,65 @@ export default function PkiPage() {
       audit('✔', 'Reto listo. Sin la llave privada, la firma es computacionalmente inviable.');
     } catch (err: any) {
       auditWarn('💥', 'Error al solicitar el reto', err);
+      addLog(`❌ Error: ${err.message}`);
+    } finally {
+      endAudit();
+      setLoading(false);
+    }
+  };
+
+  const handleTestValidAccess = async () => {
+    setActiveTest('valid_full');
+    setLoading(true);
+    addLog('▶ [ACCESO VÁLIDO] Iniciando autenticación PKI con reto criptográfico en Google Cloud Run...');
+
+    const endAudit = auditGroup('🛡️ PROYECTO 3: ACCESO VÁLIDO CON CERTIFICADO X.509 Y RETO FIRMADO');
+    audit('📜', 'Paso 1: Se obtiene client.crt (emitido por Bóveda Segura Root CA)');
+    audit('☁️', 'Paso 2: Solicitando reto nonce de un solo uso a Cloud Run (GET /api/pki/challenge)...');
+
+    try {
+      const certs = await loadDemoCerts();
+      setCertInput(certs.clientCertificate);
+
+      // 1. Obtener reto de un solo uso
+      const chRes = await fetch('/api/pki/challenge', { cache: 'no-store' });
+      const chData = await chRes.json();
+      if (!chRes.ok || !chData?.challenge) {
+        throw new Error(chData?.error || 'No se pudo obtener el reto del servidor');
+      }
+      const { nonce, token, expiresAt } = chData.challenge;
+      setChallengeInfo(chData);
+      setChallengeToken(token);
+      audit('🎲', `Paso 3: Reto generado por el servidor: nonce="${nonce.slice(0, 20)}..." (Expira: ${expiresAt})`);
+
+      // 2. Firmar localmente en el cliente con Web Crypto API (la llave NUNCA viaja)
+      audit('🔏', 'Paso 4: Firmando nonce localmente con la llave privada RSA 2048 (client.key)...');
+      audit('🔒', 'La llave privada NUNCA viaja: el navegador firma usando Web Crypto API.');
+      const sig = await signNonceInBrowser(nonce);
+      setSignature(sig);
+      audit('✔', `Paso 5: Firma RSA-SHA256 generada: ${sig.slice(0, 32)}...`);
+
+      // 3. Enviar al API
+      audit('🚀', 'Paso 6: Enviando petición autenticada a /api/pki/operaciones...');
+      addLog('Enviando: Certificado X.509 + Token de reto + Firma digital RSA-SHA256...');
+
+      const { res, data } = await postOperaciones({
+        clientCertificate: certs.clientCertificate,
+        challengeToken: token,
+        signature: sig,
+      });
+
+      if (res.ok) {
+        audit('✔', `Paso 7: HTTP ${res.status} OK — AUTENTICACIÓN PKI EXITOSA`, data);
+        audit('💰', 'Paso 8: Bóveda autorizada. Datos financieros entregados.');
+        addLog(`✔ HTTP ${res.status} OK: ${data.message}`);
+        addLog(`💰 Bóveda abierta: Saldo disponible ${data.boveda_data?.saldo_disponible} (Titular: ${data.boveda_data?.titular})`);
+      } else {
+        auditWarn('🛑', `HTTP ${res.status} DENEGADO: ${data.code}`, data.error);
+        addLog(`🛡️ HTTP ${res.status} DENEGADO: ${data.error}`);
+      }
+    } catch (err: any) {
+      auditWarn('💥', 'Error en el flujo de acceso válido', err);
       addLog(`❌ Error: ${err.message}`);
     } finally {
       endAudit();
@@ -321,28 +381,37 @@ export default function PkiPage() {
 
         {/* Panel de Pruebas de la Rúbrica */}
         <div>
-          <h2 className="text-lg font-semibold text-white mb-3">
-            🧪 Pruebas de Evaluación (Rúbrica de Seguridad)
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-white">
+              🧪 Pruebas de Evaluación (Rúbrica de Seguridad)
+            </h2>
+            <span className="text-xs text-cyan-50/60">
+              6 escenarios de prueba: 1 válido + 5 vectores de ataque
+            </span>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {/* Prueba 1: Certificado público sin firma */}
-            <Card className="hover:border-emerald-500/50 transition-all border-emerald-500/20 bg-[#07241f]/40">
+            {/* Prueba 1: Acceso Válido (Flujo mTLS Completo) */}
+            <Card className="hover:border-emerald-500/60 transition-all border-emerald-500/40 bg-[#07241f]/60 shadow-lg shadow-emerald-950/40 ring-1 ring-emerald-500/20">
               <div className="flex items-start gap-3">
                 <span className="text-3xl">🟢</span>
                 <div className="flex-1">
-                  <h3 className="font-semibold text-emerald-200">Certificado Válido sin Firma</h3>
-                  <p className="mt-1 text-xs text-emerald-100/60">
-                    Presenta <code>client.crt</code> (público) sin firmar el reto. Debe rechazarse con 403:
-                    así se demuestra que copiar el certificado ya no sirve.
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-emerald-200">Certificado Válido</h3>
+                    <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-300 border border-emerald-500/30">
+                      HTTP 200
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-emerald-100/70">
+                    Firmado por Root CA oficial + Reto firmado con llave privada (RSA 2048). Acceso concedido con datos bancarios.
                   </p>
                   <Button
                     variant="primary"
                     size="sm"
-                    className="mt-4 w-full !bg-emerald-600 hover:!bg-emerald-500"
-                    onClick={handleTestCertWithoutProof}
-                    isLoading={loading && activeTest === 'no_proof'}
+                    className="mt-4 w-full !bg-emerald-600 hover:!bg-emerald-500 font-semibold shadow-md shadow-emerald-900/50"
+                    onClick={handleTestValidAccess}
+                    isLoading={loading && activeTest === 'valid_full'}
                   >
-                    Probar Certificado sin Firma
+                    Probar Acceso Válido
                   </Button>
                 </div>
               </div>
@@ -353,9 +422,14 @@ export default function PkiPage() {
               <div className="flex items-start gap-3">
                 <span className="text-3xl">🔴</span>
                 <div className="flex-1">
-                  <h3 className="font-semibold text-red-200">Ataque: Sin Certificado</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-red-200">Ataque: Sin Certificado</h3>
+                    <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[10px] font-bold text-red-300">
+                      HTTP 401
+                    </span>
+                  </div>
                   <p className="mt-1 text-xs text-red-100/60">
-                    Petición vacía sin credencial X.509. Bloqueado con error 401.
+                    Petición vacía sin credencial X.509. Rechazado de inmediato por falta de identidad digital.
                   </p>
                   <Button
                     variant="danger"
@@ -370,14 +444,19 @@ export default function PkiPage() {
               </div>
             </Card>
 
-            {/* Prueba 3: Certificado Falso */}
+            {/* Prueba 3: Certificado Falso (Otra CA) */}
             <Card className="hover:border-amber-500/50 transition-all border-amber-500/20 bg-[#271a0e]/40">
               <div className="flex items-start gap-3">
                 <span className="text-3xl">🟠</span>
                 <div className="flex-1">
-                  <h3 className="font-semibold text-amber-200">Ataque: Otra CA (Rogue)</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-amber-200">Ataque: Otra CA (Rogue)</h3>
+                    <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300">
+                      HTTP 403
+                    </span>
+                  </div>
                   <p className="mt-1 text-xs text-amber-100/60">
-                    Certificado emitido por una CA atacante no autorizada. Rechazado con 403.
+                    Certificado emitido por una CA atacante no autorizada. Cadena de confianza rota.
                   </p>
                   <Button
                     variant="secondary"
@@ -397,15 +476,19 @@ export default function PkiPage() {
               <div className="flex items-start gap-3">
                 <span className="text-3xl">🧾</span>
                 <div className="flex-1">
-                  <h3 className="font-semibold text-rose-200">Certificado Revocado</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-rose-200">Certificado Revocado</h3>
+                    <span className="rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] font-bold text-rose-300">
+                      HTTP 403
+                    </span>
+                  </div>
                   <p className="mt-1 text-xs text-rose-100/60">
-                    <code>client-revocado.crt</code> está en la CRL firmada por la CA. Rechazo con
-                    <code className="ml-1">403 CERTIFICATE_REVOKED</code>.
+                    <code>client-revocado.crt</code> figura en la CRL firmada por la CA. Acceso revocado al instante.
                   </p>
                   <Button
                     variant="danger"
                     size="sm"
-                    className="mt-4 w-full"
+                    className="mt-4 w-full !bg-rose-700 hover:!bg-rose-600"
                     onClick={handleTestRevokedCert}
                     isLoading={loading && activeTest === 'revoked'}
                   >
@@ -420,10 +503,14 @@ export default function PkiPage() {
               <div className="flex items-start gap-3">
                 <span className="text-3xl">🕒</span>
                 <div className="flex-1">
-                  <h3 className="font-semibold text-slate-200">Certificado Vencido</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-slate-200">Certificado Vencido</h3>
+                    <span className="rounded-full bg-slate-500/20 px-2 py-0.5 text-[10px] font-bold text-slate-300">
+                      HTTP 403
+                    </span>
+                  </div>
                   <p className="mt-1 text-xs text-slate-300/60">
-                    <code>client-vencido.crt</code> expiró en 2021. Rechazo con
-                    <code className="ml-1">403 CERTIFICATE_EXPIRED</code>.
+                    <code>client-vencido.crt</code> expiró en 2021 (notAfter caducado).
                   </p>
                   <Button
                     variant="secondary"
@@ -433,6 +520,33 @@ export default function PkiPage() {
                     isLoading={loading && activeTest === 'expired'}
                   >
                     Probar Certificado Vencido
+                  </Button>
+                </div>
+              </div>
+            </Card>
+
+            {/* Prueba 6: Certificado público sin firma (Robo de Certificado) */}
+            <Card className="hover:border-purple-500/50 transition-all border-purple-500/20 bg-[#1d122b]/40">
+              <div className="flex items-start gap-3">
+                <span className="text-3xl">🛡️</span>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-purple-200">Robo de Certificado</h3>
+                    <span className="rounded-full bg-purple-500/20 px-2 py-0.5 text-[10px] font-bold text-purple-300">
+                      HTTP 403
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-purple-100/60">
+                    Atacante copia <code>client.crt</code> pero no tiene la llave privada. Bloqueado por falta de firma del reto.
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="mt-4 w-full !bg-purple-700 hover:!bg-purple-600 !text-white"
+                    onClick={handleTestCertWithoutProof}
+                    isLoading={loading && activeTest === 'no_proof'}
+                  >
+                    Probar Copia sin Llave
                   </Button>
                 </div>
               </div>
@@ -528,7 +642,39 @@ openssl base64 -A -in firma.bin`}
               )}
             </div>
 
-            <div className="h-[275px] overflow-auto rounded-xl border border-cyan-100/10 bg-[#041622] p-4 text-xs font-mono">
+            {/* Banner de Bóveda Desbloqueada si HTTP 200 */}
+            {responseBody?.success && responseBody?.boveda_data && (
+              <div className="mb-3 rounded-xl border border-emerald-500/40 bg-emerald-950/40 p-3 text-xs">
+                <div className="flex items-center justify-between border-b border-emerald-500/20 pb-2">
+                  <span className="font-bold text-emerald-300 flex items-center gap-1.5">
+                    <span>🔓</span> ACCESO CONCEDIDO A LA BÓVEDA
+                  </span>
+                  <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-mono text-emerald-200">
+                    {responseBody.boveda_data.cuenta_id}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+                  <div>
+                    <span className="text-cyan-100/60">Titular:</span>{' '}
+                    <span className="text-white font-medium">{responseBody.boveda_data.titular}</span>
+                  </div>
+                  <div>
+                    <span className="text-cyan-100/60">Saldo:</span>{' '}
+                    <span className="font-bold text-emerald-300 font-mono text-xs">{responseBody.boveda_data.saldo_disponible}</span>
+                  </div>
+                  <div>
+                    <span className="text-cyan-100/60">Nivel de Acceso:</span>{' '}
+                    <span className="text-cyan-200">{responseBody.boveda_data.nivel_acceso}</span>
+                  </div>
+                  <div>
+                    <span className="text-cyan-100/60">Autenticación:</span>{' '}
+                    <span className="text-emerald-300 font-medium">PKI X.509 + Reto RSA</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="h-[240px] overflow-auto rounded-xl border border-cyan-100/10 bg-[#041622] p-4 text-xs font-mono">
               {loading ? (
                 <div className="flex h-full items-center justify-center gap-2 text-cyan-300">
                   <Spinner />
