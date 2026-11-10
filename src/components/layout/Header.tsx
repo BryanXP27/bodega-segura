@@ -32,8 +32,20 @@ export function Header() {
                 pathname === '/pki' ? 'bg-cyan-400/15 text-white' : ''
               }`}
             >
-              <span className="hidden sm:inline">🛡️ Proyecto 3 (PKI Cloud)</span>
-              <span className="sm:hidden">PKI</span>
+              <span className="hidden sm:inline">🛡️ Proyecto 3 (PKI)</span>
+              <span className="sm:hidden">P3</span>
+            </Button>
+          </Link>
+          <Link href="/auditoria">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`border border-purple-400/30 text-purple-300 hover:bg-purple-400/10 ${
+                pathname === '/auditoria' ? 'bg-purple-400/15 text-white' : ''
+              }`}
+            >
+              <span className="hidden sm:inline">🔍 Proyecto 4 (Auditoría IA)</span>
+              <span className="sm:hidden">P4</span>
             </Button>
           </Link>
           {isAuthenticated ? (
