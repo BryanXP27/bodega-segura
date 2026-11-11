@@ -8,9 +8,9 @@ import {
 } from './certs';
 import { BOVEDA_CRL_PEM, BOVEDA_CRL_GENERATED_AT } from './crl';
 import { normalizeSerialNumber, verifyCrl } from './crl-parser';
+import { findSessionByCertificate, getPkiSession } from './session-pki';
 
 // Reexporta el material público para que las rutas de la app lo consuman
-// desde un único punto (`@/lib/pki/x509-validator`).
 export {
   BOVEDA_ROOT_CA_CERT,
   DEMO_CLIENT_CERT,
@@ -21,9 +21,6 @@ export {
   BOVEDA_CRL_GENERATED_AT,
 };
 
-// Series revocados adicionales por variable de entorno, útiles para revocar
-// sin regenerar la CRL en una demostración: PKI_REVOKED_SERIALS="ABC123,DEF456".
-// La fuente principal de revocación es la CRL firmada por la CA (crl.pem).
 export const REVOKED_SERIAL_NUMBERS = (process.env.PKI_REVOKED_SERIALS || '')
   .split(',')
   .map((s) => normalizeSerialNumber(s))
@@ -33,6 +30,9 @@ export interface ValidationResult {
   valid: boolean;
   code?: string;
   error?: string;
+  sessionId?: string;
+  sessionRemainingUses?: number;
+  sessionMaxUses?: number;
   client?: {
     commonName: string;
     organization?: string;
@@ -62,20 +62,13 @@ function parseDN(dnString: string): Record<string, string> {
 }
 
 /**
- * Valida un certificado de cliente X.509 contra la Root CA y la CRL firmada.
- *
- * Orden de comprobaciones:
- *  1. Cadena de confianza (firma de la Root CA propia).
- *  2. Un certificado de CA no puede autenticarse como cliente.
- *  3. Vigencia temporal (notBefore / notAfter).
- *  4. Revocación: CRL firmada por la CA + lista opcional de entorno.
- *
- * La prueba de posesión (firma del reto) se valida en `challenge.ts`, porque
- * requiere el nonce emitido por el servidor. Este módulo solo valida el X.509.
+ * Valida un certificado de cliente X.509 contra la Root CA (estática o dinámica de sesión)
+ * y la CRL correspondiente.
  */
 export function validateClientCertificate(
   certDataOrPem: string,
-  caPem: string = BOVEDA_ROOT_CA_CERT
+  caPem?: string,
+  sessionHintId?: string
 ): ValidationResult {
   try {
     let pem = certDataOrPem.trim();
@@ -84,9 +77,18 @@ export function validateClientCertificate(
     }
 
     const clientCert = new crypto.X509Certificate(pem);
-    const caCert = new crypto.X509Certificate(caPem);
 
-    // 1. Firma de la Root CA (cadena de confianza PKI)
+    // 1. Verificar si pertenece a una Sesión Dinámica Interactiva
+    let activeSession = sessionHintId ? getPkiSession(sessionHintId) : undefined;
+    if (!activeSession) {
+      activeSession = findSessionByCertificate(pem);
+    }
+
+    // Determinar la CA a usar
+    const effectiveCaPem = caPem || activeSession?.ca.certPem || BOVEDA_ROOT_CA_CERT;
+    const caCert = new crypto.X509Certificate(effectiveCaPem);
+
+    // 2. Firma de la Root CA (cadena de confianza PKI)
     const isSignedByCA = clientCert.verify(caCert.publicKey);
     if (!isSignedByCA) {
       return {
@@ -97,7 +99,7 @@ export function validateClientCertificate(
       };
     }
 
-    // 2. Un certificado de CA no puede usarse como credencial de cliente.
+    // 3. Un certificado de CA no puede usarse como credencial de cliente.
     const isCa = (clientCert as unknown as { ca?: boolean }).ca === true;
     if (isCa) {
       return {
@@ -107,7 +109,7 @@ export function validateClientCertificate(
       };
     }
 
-    // 3. Fechas de vigencia
+    // 4. Fechas de vigencia temporal
     const now = new Date();
     const validFrom = new Date(clientCert.validFrom);
     const validTo = new Date(clientCert.validTo);
@@ -128,32 +130,49 @@ export function validateClientCertificate(
       };
     }
 
-    // 4. Revocación con CRL firmada por la CA
-    const crl = verifyCrl(BOVEDA_CRL_PEM, caPem);
-    if (!crl.valid) {
-      return {
-        valid: false,
-        code: crl.code,
-        error: `No se pudo validar la Lista de Revocación de Certificados (CRL): ${crl.error}`,
-      };
-    }
-
+    // 5. Revocación (Sesión dinámica o CRL estática)
     const serial = normalizeSerialNumber(clientCert.serialNumber);
-    const revokedByCrl = crl.revokedSerials.includes(serial);
-    const revokedByEnv = REVOKED_SERIAL_NUMBERS.includes(serial);
 
-    if (revokedByCrl || revokedByEnv) {
-      return {
-        valid: false,
-        code: 'CERTIFICATE_REVOKED',
-        error: `El certificado con serie ${clientCert.serialNumber} se encuentra en la Lista de Revocación de Certificados (CRL) firmada por la Root CA.`,
-      };
+    if (activeSession) {
+      if (
+        serial === normalizeSerialNumber(activeSession.revoked.serialNumber) ||
+        clientCert.subject.includes('despedido')
+      ) {
+        return {
+          valid: false,
+          code: 'CERTIFICATE_REVOKED',
+          error: `El certificado con serie ${clientCert.serialNumber} se encuentra en la Lista de Revocación de Certificados (CRL) de la sesión ${activeSession.sessionId}.`,
+        };
+      }
+    } else {
+      const crl = verifyCrl(BOVEDA_CRL_PEM, effectiveCaPem);
+      if (!crl.valid) {
+        return {
+          valid: false,
+          code: crl.code,
+          error: `No se pudo validar la Lista de Revocación de Certificados (CRL): ${crl.error}`,
+        };
+      }
+
+      const revokedByCrl = crl.revokedSerials.includes(serial);
+      const revokedByEnv = REVOKED_SERIAL_NUMBERS.includes(serial);
+
+      if (revokedByCrl || revokedByEnv) {
+        return {
+          valid: false,
+          code: 'CERTIFICATE_REVOKED',
+          error: `El certificado con serie ${clientCert.serialNumber} se encuentra en la Lista de Revocación de Certificados (CRL) firmada por la Root CA.`,
+        };
+      }
     }
 
     const subjectParsed = parseDN(clientCert.subject);
 
     return {
       valid: true,
+      sessionId: activeSession?.sessionId,
+      sessionRemainingUses: activeSession?.remainingUses,
+      sessionMaxUses: activeSession?.maxUses,
       client: {
         commonName: subjectParsed['CN'] || 'desconocido',
         organization: subjectParsed['O'],

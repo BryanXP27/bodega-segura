@@ -46,11 +46,11 @@ export async function signNonceInBrowser(
   nonce: string,
   privateKeyPem: string = DEMO_CLIENT_PRIVATE_KEY
 ): Promise<string> {
-  const pemHeader = '-----BEGIN PRIVATE KEY-----';
-  const pemFooter = '-----END PRIVATE KEY-----';
   const pemContents = privateKeyPem
-    .replace(pemHeader, '')
-    .replace(pemFooter, '')
+    .replace('-----BEGIN PRIVATE KEY-----', '')
+    .replace('-----END PRIVATE KEY-----', '')
+    .replace('-----BEGIN RSA PRIVATE KEY-----', '')
+    .replace('-----END RSA PRIVATE KEY-----', '')
     .replace(/\s+/g, '');
 
   if (typeof window === 'undefined' || !window.crypto || !window.crypto.subtle) {
@@ -87,4 +87,20 @@ export async function signNonceInBrowser(
     binary += String.fromCharCode(signatureBytes[i]);
   }
   return window.btoa(binary);
+}
+
+/**
+ * Utilidad para descargar archivos de texto (.crt, .key, .pem) en el navegador del usuario.
+ */
+export function downloadTextFile(filename: string, content: string, mimeType = 'text/plain') {
+  if (typeof window === 'undefined') return;
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

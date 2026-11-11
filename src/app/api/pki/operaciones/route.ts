@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateClientCertificate } from '@/lib/pki/x509-validator';
 import { verifyChallengeSignature, verifyChallengeToken } from '@/lib/pki/challenge';
+import { consumeSessionUse, getPkiSession } from '@/lib/pki/session-pki';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,13 +13,12 @@ function ts(): string {
 /**
  * Endpoint Protegido con Certificado Digital X.509 (Proyecto 3 - UNDC 2026)
  *
- * Autenticacion en dos factores criptograficos, sin contrasenas ni API Keys:
- *   A) El certificado X.509 debe estar firmado por la Root CA propia, vigente
- *      y no revocado.
- *   B) El cliente debe demostrar POSESION de la llave privada firmando el reto
- *      emitido por GET /api/pki/challenge (RSA-SHA256, un solo uso, 2 min).
- *
- * Presentar solo el certificado (material publico) ya NO concede acceso.
+ * Autenticación en dos factores criptográficos, sin contraseñas ni API Keys:
+ *   A) El certificado X.509 debe estar firmado por la Root CA propia (estática o de sesión interactiva),
+ *      vigente y no revocado en su CRL.
+ *   B) El cliente debe demostrar POSESIÓN de la llave privada firmando el reto
+ *      emitido por GET /api/pki/challenge (RSA-SHA256, un solo uso).
+ *   C) Cuota Zero-Trust: Cada credencial interactiva dispone de 3 usos antes de requerir renovación.
  */
 export async function POST(request: NextRequest) {
   const timestamp = ts();
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
   console.log(`============================================================`);
 
   try {
-    // 1. Body JSON: certificado, token de reto y firma
+    // 1. Body JSON: certificado, token de reto, firma y opcional sessionId
     let body: any = {};
     try {
       body = await request.json();
@@ -63,6 +63,11 @@ export async function POST(request: NextRequest) {
       request.headers.get('x-pki-signature') ||
       null;
 
+    const sessionId: string | null =
+      body?.sessionId ||
+      request.headers.get('x-pki-session') ||
+      null;
+
     // A. Caso 1: No se envió ningún certificado
     if (!certToValidate) {
       console.warn(`[Bóveda Cloud ${timestamp}] ❌ ATAQUE DETECTADO: Petición recibida SIN certificado digital.`);
@@ -83,7 +88,7 @@ export async function POST(request: NextRequest) {
     console.log(`[Bóveda Cloud ${timestamp}] 📜 Certificado X.509 recibido. Decodificando estructura...`);
 
     // B. Validación criptográfica de la firma de la CA, vigencia y revocación
-    const result = validateClientCertificate(certToValidate);
+    const result = validateClientCertificate(certToValidate, undefined, sessionId || undefined);
 
     if (!result.valid) {
       console.warn(`[Bóveda Cloud ${timestamp}] ❌ VALIDACIÓN FALLIDA: ${result.error}`);
@@ -97,6 +102,31 @@ export async function POST(request: NextRequest) {
         },
         { status: 403 }
       );
+    }
+
+    // Comprobar si la sesión ya agotó previamente sus 3 usos
+    const activeSessionId = result.sessionId || sessionId;
+    if (activeSessionId) {
+      const sess = getPkiSession(activeSessionId);
+      if (sess && sess.remainingUses <= 0) {
+        console.warn(`[Bóveda Cloud ${timestamp}] ❌ CUOTA AGOTADA: La sesión ${activeSessionId} ya consumió sus 3 usos.`);
+        console.warn(`[Bóveda Cloud ${timestamp}] 🛑 RESULTADO: HTTP 403 Forbidden (SESSION_QUOTA_EXCEEDED).`);
+        return NextResponse.json(
+          {
+            success: false,
+            error: `CUOTA EXCEDIDA (3/3 usos consumidos): Este par de llaves y certificado ya agotó su límite de 3 operaciones autorizadas por política Zero-Trust. Por favor genera una nueva CA y llaves.`,
+            code: 'SESSION_QUOTA_EXCEEDED',
+            sessionId: activeSessionId,
+            quota: {
+              maxUses: sess.maxUses,
+              usesCount: sess.usesCount,
+              remainingUses: 0,
+            },
+            timestamp: new Date().toISOString(),
+          },
+          { status: 403 }
+        );
+      }
     }
 
     // C. Prueba de posesión: el certificado por sí solo NO autentica
@@ -157,7 +187,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // F. Certificado válido + posesión de la llave privada demostrada
+    // F. Consumir 1 uso de la cuota autorizada si pertenece a una sesión
+    let quotaInfo: any = null;
+    if (activeSessionId) {
+      const consumeResult = consumeSessionUse(activeSessionId);
+      if (!consumeResult.allowed) {
+        console.warn(`[Bóveda Cloud ${timestamp}] ❌ CUOTA EXCEDIDA al consumir: ${consumeResult.error}`);
+        return NextResponse.json(
+          {
+            success: false,
+            error: consumeResult.error,
+            code: 'SESSION_QUOTA_EXCEEDED',
+            sessionId: activeSessionId,
+            timestamp: new Date().toISOString(),
+          },
+          { status: 403 }
+        );
+      }
+      quotaInfo = {
+        session_id: activeSessionId,
+        usos_permitidos: consumeResult.maxUses,
+        usos_consumidos: consumeResult.usesCount,
+        usos_restantes: consumeResult.remainingUses,
+        politica: 'Zero-Trust: 3 usos por par de llaves autorizadas',
+      };
+      console.log(`[Bóveda Cloud ${timestamp}] 🎯 CUOTA DE SESIÓN: Uso ${consumeResult.usesCount} de ${consumeResult.maxUses} consumido (Quedan ${consumeResult.remainingUses} usos)`);
+    }
+
+    // G. Certificado válido + posesión de la llave privada demostrada
     console.log(`[Bóveda Cloud ${timestamp}] ✔ FIRMA VERIFICADA matemáticamente contra la Root CA de la Bóveda.`);
     console.log(`[Bóveda Cloud ${timestamp}] ✔ FECHAS DE VIGENCIA Y CRL: Certificado válido y no revocado.`);
     console.log(`[Bóveda Cloud ${timestamp}] ✔ RETO ${challengeCheck.payload.jti}: firma RSA-SHA256 válida (un solo uso).`);
@@ -167,6 +224,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: `Autenticación PKI Exitosa. Bienvenido, ${result.client?.commonName}.`,
+      cuota_sesion: quotaInfo,
       auth_details: {
         client: result.client,
         auth_method: 'Digital Certificate X.509 + Proof of Possession (challenge-response)',
@@ -175,7 +233,7 @@ export async function POST(request: NextRequest) {
         challenge_expires_at: new Date(challengeCheck.payload.exp * 1000).toISOString(),
         passwords_used: 'Ninguna (Autenticación basada en Criptografía Asimétrica)',
         api_keys_used: 'Ninguna',
-        verified_by: 'Bóveda Segura Root CA (RSA 4096 / SHA-256)',
+        verified_by: result.client?.issuer || 'Bóveda Segura Root CA',
         cloud_platform: 'Google Cloud Run',
       },
       boveda_data: {
@@ -184,6 +242,7 @@ export async function POST(request: NextRequest) {
         saldo_disponible: '$ 1,500,000.00 USD',
         nivel_acceso: 'OPERACIONES_CRITICAS_AUTORIZADAS',
         estado_auditoria: 'VERIFICADO_EN_NUBE',
+        usos_restantes: quotaInfo ? `${quotaInfo.usos_restantes} de ${quotaInfo.usos_permitidos}` : 'Ilimitado (Demo estático)',
       },
       timestamp: new Date().toISOString(),
     });
